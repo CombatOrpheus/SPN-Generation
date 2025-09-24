@@ -129,8 +129,13 @@ function run_generation_from_config(config)
 
     println("Generating $(config["number_of_samples_to_generate"]) initial SPN samples...")
     initial_samples = Vector{Any}(undef, config["number_of_samples_to_generate"])
+    p = Progress(config["number_of_samples_to_generate"])
+    lock = ReentrantLock()
     Threads.@threads for i in 1:config["number_of_samples_to_generate"]
         initial_samples[i] = generate_single_spn(config)
+        Base.lock(lock) do
+            next!(p)
+        end
     end
 
     valid_samples = filter(x -> !isnothing(x), initial_samples)
@@ -139,9 +144,8 @@ function run_generation_from_config(config)
     all_samples = []
     if get(config, "enable_transformations", false)
         println("Augmenting samples...")
-        augmented_lists = Vector{Any}(undef, length(valid_samples))
-        Threads.@threads for i in 1:length(valid_samples)
-            augmented_lists[i] = augment_single_spn(valid_samples[i], config)
+        augmented_lists = @showprogress map(valid_samples) do sample
+            augment_single_spn(sample, config)
         end
         all_samples = vcat(augmented_lists...)
     else
