@@ -1,16 +1,21 @@
-push!(LOAD_PATH, "src")
+# Add src to the LOAD_PATH for the main process
+push!(LOAD_PATH, abspath("src"))
 
 using Distributed
-@everywhere push!(LOAD_PATH, "src")
-@everywhere using DataGenerate
-@everywhere using Utils
 using ArgParse
 using ProgressMeter
 using HDF5
 using JSON3
 using Random
+using DataGenerate
+using Utils
 
-function generate_single_spn(config)
+# Make the functions available on all workers
+@everywhere push!(LOAD_PATH, abspath("src"))
+@everywhere using DataGenerate, Utils
+@everywhere using Random
+
+@everywhere function generate_single_spn(config)
     max_attempts = 100
     for _ in 1:max_attempts
         place_num = rand(config["minimum_number_of_places"]:config["maximum_number_of_places"])
@@ -37,7 +42,7 @@ function generate_single_spn(config)
     return nothing
 end
 
-function augment_single_spn(sample, config)
+@everywhere function augment_single_spn(sample, config)
     if isnothing(sample) || !haskey(sample, "petri_net")
         return []
     end
@@ -182,12 +187,12 @@ function main()
     args = parse_args(s)
     config = load_config(args)
 
-    # Add workers for parallel processing
     num_jobs = get(config, "number_of_parallel_jobs", 1)
-    if num_jobs > 1 && nworkers() < num_jobs
+    if num_jobs > nworkers()
         addprocs(num_jobs - nworkers())
     end
 
+    # The @everywhere directives at the top of the file will handle loading on all workers.
     run_generation_from_config(config)
 end
 

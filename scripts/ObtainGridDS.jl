@@ -1,10 +1,20 @@
-using ..DataGenerate
-using ..Utils
+# Add src to the LOAD_PATH for the main process
+push!(LOAD_PATH, abspath("src"))
+
+using Distributed
 using ArgParse
+using Printf
 using ProgressMeter
 using HDF5
 using JSON3
 using Random
+using DataGenerate
+using Utils
+
+# Make the functions available on all workers
+@everywhere push!(LOAD_PATH, abspath("src"))
+@everywhere using DataGenerate, Utils
+@everywhere using Random
 
 function get_grid_index(value, grid_boundaries)
     for (i, boundary) in enumerate(grid_boundaries)
@@ -64,6 +74,10 @@ function partition_data_into_grid(grid_dir, accumulate_data, raw_data_path, conf
     Utils.save_data_to_json_file(joinpath(grid_dir, "config.json"), grid_config)
 end
 
+@everywhere function transform_data(data, config)
+    return DataGenerate.DataTransformation.generate_lambda_variations(data, config["lambda_variations_per_sample"])
+end
+
 function sample_and_transform_data(config)
     grid_data_loc_template = joinpath(config["temporary_grid_location"], "p%s", "m%s")
     all_data = []
@@ -71,7 +85,7 @@ function sample_and_transform_data(config)
     num_place_bins = length(get(config, "places_grid_boundaries", [5 + 2 * (i + 1) for i in 0:4])) + 1
     num_marking_bins = length(get(config, "markings_grid_boundaries", [4 + 4 * (i + 1) for i in 0:9])) + 1
 
-    @showprogress for i in 1:num_place_bins
+    @showprogress "Sampling from grid..." for i in 1:num_place_bins
         for j in 1:num_marking_bins
             dir_path = Printf.format(Printf.Format(grid_data_loc_template), i, j)
             if isdir(dir_path)
@@ -83,11 +97,10 @@ function sample_and_transform_data(config)
         end
     end
 
-    transformed_data = []
-    @showprogress for data in all_data
-        new_data = DataGenerate.DataTransformation.generate_lambda_variations(data, config["lambda_variations_per_sample"])
-        append!(transformed_data, new_data)
+    transformed_data_lists = @showprogress "Transforming data..." pmap(all_data) do data
+        transform_data(data, config)
     end
+    transformed_data = vcat(transformed_data_lists...)
 
     return transformed_data
 end
@@ -134,6 +147,11 @@ function main()
     end
     args = parse_args(s)
     config = Utils.load_toml_file(args["config"])
+
+    num_jobs = get(config, "number_of_parallel_jobs", 1)
+    if num_jobs > nworkers()
+        addprocs(num_jobs - nworkers())
+    end
 
     partition_data_into_grid(
         config["temporary_grid_location"],
