@@ -1,35 +1,42 @@
-# Add src to the LOAD_PATH for the main process
-push!(LOAD_PATH, abspath("src"))
+# This script assumes it's run in a Julia process where workers have been added
+# and the project has been activated, e.g., `julia -p 4 --project=@.`
 
 using Distributed
-using ArgParse
-using ProgressMeter
-using HDF5
-using JSON3
-using Random
-using DataGenerate
-using Utils
+@everywhere using SPNBenchmarks
 
-# Make the functions available on all workers
-@everywhere push!(LOAD_PATH, abspath("src"))
-@everywhere using DataGenerate, Utils
-@everywhere using Random
+# The rest of the using statements are for the main process and are loaded after the package
+using ArgParse, ProgressMeter, HDF5, JSON3
 
-@everywhere function generate_single_spn(config)
+function main()
+    s = setup_arg_parser()
+    args = parse_args(ARGS, s)
+    config = load_config(args)
+
+    # The number of parallel jobs is now controlled by the -p flag when launching Julia
+    # We can still use the config to inform the user if they forgot to add workers
+    num_jobs = get(config, "number_of_parallel_jobs", 1)
+    if num_jobs > 1 && nworkers() == 1
+        @warn "number_of_parallel_jobs is set to $num_jobs in the config, but the script was run on a single process. Run with `julia -p $num_jobs` for parallel execution."
+    end
+
+    run_generation_from_config(config)
+end
+
+function generate_single_spn(config)
     max_attempts = 100
     for _ in 1:max_attempts
         place_num = rand(config["minimum_number_of_places"]:config["maximum_number_of_places"])
         trans_num = rand(config["minimum_number_of_transitions"]:config["maximum_number_of_transitions"])
 
-        petri_matrix = DataGenerate.generate_random_petri_net(place_num, trans_num)
+        petri_matrix = SPNBenchmarks.DataGenerate.generate_random_petri_net(place_num, trans_num)
         if get(config, "enable_pruning", false)
-            petri_matrix = DataGenerate.prune_petri_net(petri_matrix)
+            petri_matrix = SPNBenchmarks.DataGenerate.prune_petri_net(petri_matrix)
         end
         if get(config, "enable_token_addition", false)
-            petri_matrix = DataGenerate.add_tokens_randomly(petri_matrix)
+            petri_matrix = SPNBenchmarks.DataGenerate.add_tokens_randomly(petri_matrix)
         end
 
-        results, success = DataGenerate.SPN.filter_spn(
+        results, success = SPNBenchmarks.DataGenerate.SPN.filter_spn(
             petri_matrix,
             place_upper_bound=config["place_upper_bound"],
             marks_lower_limit=config["marks_lower_limit"],
@@ -42,13 +49,13 @@ using Utils
     return nothing
 end
 
-@everywhere function augment_single_spn(sample, config)
+function augment_single_spn(sample, config)
     if isnothing(sample) || !haskey(sample, "petri_net")
         return []
     end
 
     petri_net = sample["petri_net"]
-    augmented_data = DataGenerate.DataTransformation.generate_petri_net_variations(
+    augmented_data = SPNBenchmarks.DataGenerate.DataTransformation.generate_petri_net_variations(
         petri_net,
         config,
     )
@@ -80,7 +87,7 @@ function setup_arg_parser()
             help = "Number of samples."
             arg_type = Int
         "--number_of_parallel_jobs"
-            help = "Number of parallel jobs."
+            help = "Number of parallel jobs (for informational purposes, use `julia -p N` to set).",
             arg_type = Int
         "--minimum_number_of_places"
             help = "Min number of places."
@@ -120,10 +127,10 @@ function setup_arg_parser()
 end
 
 function load_config(args)
-    config = isfile(args["config"]) ? Utils.load_toml_file(args["config"]) : Dict()
+    config = isfile(args["config"]) ? SPNBenchmarks.Utils.load_toml_file(args["config"]) : Dict()
     for (key, value) in args
         if !isnothing(value)
-            config[key] = value
+            config[string(key)] = value
         end
     end
     return config
@@ -132,7 +139,7 @@ end
 function run_generation_from_config(config)
     output_format = get(config, "output_format", "hdf5")
     output_dir = joinpath(config["output_data_location"], "data_$(output_format)")
-    Utils.create_directory(output_dir)
+    SPNBenchmarks.Utils.create_directory(output_dir)
     output_path = joinpath(output_dir, config["output_file"])
 
     println("Generating $(config["number_of_samples_to_generate"]) initial SPN samples...")
@@ -166,7 +173,7 @@ function run_generation_from_config(config)
             println("Writing $(length(all_samples)) samples to HDF5...")
             @showprogress for (i, sample) in enumerate(all_samples)
                 sample_group = create_group(dataset_group, "sample_$(lpad(i, 7, '0'))")
-                Utils.write_to_hdf5(sample_group, sample)
+                SPNBenchmarks.Utils.write_to_hdf5(sample_group, sample)
             end
             attrs(hf)["total_samples_written"] = length(all_samples)
         end
@@ -175,25 +182,11 @@ function run_generation_from_config(config)
         open(output_path, "w") do f
             write(f, JSON3.write(config) * "\n")
             @showprogress for sample in all_samples
-                Utils.write_to_jsonl(f, sample)
+                SPNBenchmarks.Utils.write_to_jsonl(f, sample)
             end
         end
         println("JSONL file '$output_path' created successfully.")
     end
-end
-
-function main()
-    s = setup_arg_parser()
-    args = parse_args(s)
-    config = load_config(args)
-
-    num_jobs = get(config, "number_of_parallel_jobs", 1)
-    if num_jobs > nworkers()
-        addprocs(num_jobs - nworkers())
-    end
-
-    # The @everywhere directives at the top of the file will handle loading on all workers.
-    run_generation_from_config(config)
 end
 
 if abspath(PROGRAM_FILE) == @__FILE__

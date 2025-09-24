@@ -4,14 +4,13 @@ Pkg.instantiate()
 using Test
 using JSON3
 using Random
-
-# Add src to load path
-push!(LOAD_PATH, "src")
+using TOML
+using SPNBenchmarks
 
 # Define paths and commands
 const PYTHON_SCRIPT = "SPNGenerate.py" # Relative to python/ dir
 const JULIA_SCRIPT = "scripts/SPNGenerate.jl"
-const CONFIG_FILE = "../config/DataConfig/test_config.toml" # Relative to python/ dir
+const CONFIG_FILE_PATH = "config/DataConfig/test_config.toml"
 const PYTHON_OUTPUT_DIR_REL = "../test/data/python_output" # Relative to python/ dir
 const JULIA_OUTPUT_DIR = "test/data/julia_output"
 const PYTHON_OUTPUT_FILE = "test/data/python_output/data_jsonl/test_data"
@@ -54,12 +53,16 @@ end
     # 2. Run Python script to generate reference data
     @info "Running Python script to generate reference data..."
     # Note: uv must be run from the python directory to find the venv
-    python_cmd = `uv run python $PYTHON_SCRIPT --config $CONFIG_FILE --output_data_location $PYTHON_OUTPUT_DIR_REL`
+    python_cmd = `uv run python $PYTHON_SCRIPT --config ../$CONFIG_FILE_PATH --output_data_location $PYTHON_OUTPUT_DIR_REL`
     @test run_command(python_cmd, dir="python")
 
-    # 3. Run Julia script
+    # 3. Run Julia script with the correct number of processes
     @info "Running Julia script..."
-    julia_cmd = `julia --project=. $JULIA_SCRIPT --config config/DataConfig/test_config.toml --output_data_location $JULIA_OUTPUT_DIR`
+    config = TOML.parsefile(CONFIG_FILE_PATH)
+    num_procs = get(config, "number_of_parallel_jobs", 1)
+
+    # The --project=@. flag ensures the workers inherit the project environment
+    julia_cmd = `julia -p $num_procs --project=@. $JULIA_SCRIPT --config $CONFIG_FILE_PATH --output_data_location $JULIA_OUTPUT_DIR`
     @test run_command(julia_cmd)
 
     # 4. Compare the output files
