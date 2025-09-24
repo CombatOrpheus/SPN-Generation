@@ -1,9 +1,25 @@
-module DataGenerate
+module SPNGenerator
 
 using Random
+using DataStructures
+using SparseArrays
+using IterativeSolvers
+using LinearAlgebra
+using TOML
+using JSON3
+using Base.Threads
 
+# Exports from DataGenerate and its submodules
 export generate_random_petri_net, prune_petri_net, add_tokens_randomly
+export generate_reachability_graph
+export filter_spn, get_spn_info
+export generate_petri_net_variations, generate_lambda_variations
 
+# Exports from Utils
+export create_directory, load_toml_file, save_data_to_json_file, load_json_file, count_json_files, sample_json_files_from_directory
+export write_to_hdf5, write_to_jsonl
+
+# Contents of DataGenerate.jl
 """
 Initializes the Petri net matrix and selects the first connection.
 """
@@ -71,25 +87,25 @@ end
 Deletes excess edges from the Petri net.
 """
 function delete_excess_edges(petri_matrix, num_transitions)
-    # Iterate over places
-    for i in 1:size(petri_matrix, 1)
-        if sum(petri_matrix[i, 1:end-1]) >= 3
-            edge_indices = findall(isone, petri_matrix[i, 1:end-1])
-            if length(edge_indices) > 2
-                indices_to_remove = shuffle(edge_indices)[1:(length(edge_indices) - 2)]
-                petri_matrix[i, indices_to_remove] .= 0
-            end
+    num_places = size(petri_matrix, 1)
+
+    # Places
+    place_sums = sum(petri_matrix[:, 1:end-1], dims=2)
+    for i in findall(s -> s >= 3, vec(place_sums))
+        edge_indices = findall(isone, petri_matrix[i, 1:end-1])
+        if length(edge_indices) > 2
+            indices_to_remove = shuffle(edge_indices)[1:(length(edge_indices) - 2)]
+            petri_matrix[i, indices_to_remove] .= 0
         end
     end
 
-    # Iterate over transitions
-    for i in 1:(2 * num_transitions)
-        if sum(petri_matrix[:, i]) >= 3
-            edge_indices = findall(isone, petri_matrix[:, i])
-            if length(edge_indices) > 2
-                indices_to_remove = shuffle(edge_indices)[1:(length(edge_indices) - 2)]
-                petri_matrix[indices_to_remove, i] .= 0
-            end
+    # Transitions
+    transition_sums = sum(petri_matrix, dims=1)
+    for i in findall(s -> s >= 3, transition_sums[1, 1:(2*num_transitions)])
+        edge_indices = findall(isone, petri_matrix[:, i])
+        if length(edge_indices) > 2
+            indices_to_remove = shuffle(edge_indices)[1:(length(edge_indices) - 2)]
+            petri_matrix[indices_to_remove, i] .= 0
         end
     end
 
@@ -103,12 +119,10 @@ function add_missing_connections(petri_matrix, num_transitions)
     num_places = size(petri_matrix, 1)
 
     # Ensure each transition has at least one connection
-    zero_sum_cols = findall(iszero, vec(sum(petri_matrix[:, 1:(2*num_transitions)], dims=1)))
+    zero_sum_cols = findall(iszero, vec(sum(view(petri_matrix, :, 1:(2*num_transitions)), dims=1)))
     if !isempty(zero_sum_cols)
         random_rows = rand(1:num_places, length(zero_sum_cols))
-        for (i, col_idx) in enumerate(zero_sum_cols)
-            petri_matrix[random_rows[i], col_idx] = 1
-        end
+        petri_matrix[random_rows, zero_sum_cols] .= 1
     end
 
     pre_matrix = view(petri_matrix, :, 1:num_transitions)
@@ -118,18 +132,14 @@ function add_missing_connections(petri_matrix, num_transitions)
     rows_with_zero_pre_sum = findall(iszero, vec(sum(pre_matrix, dims=2)))
     if !isempty(rows_with_zero_pre_sum)
         random_cols_pre = rand(1:num_transitions, length(rows_with_zero_pre_sum))
-        for (i, row_idx) in enumerate(rows_with_zero_pre_sum)
-            petri_matrix[row_idx, random_cols_pre[i]] = 1
-        end
+        petri_matrix[rows_with_zero_pre_sum, random_cols_pre] .= 1
     end
 
     # Ensure each place has at least one outgoing edge
     rows_with_zero_post_sum = findall(iszero, vec(sum(post_matrix, dims=2)))
     if !isempty(rows_with_zero_post_sum)
         random_cols_post = rand(1:num_transitions, length(rows_with_zero_post_sum))
-        for (i, row_idx) in enumerate(rows_with_zero_post_sum)
-            petri_matrix[row_idx, random_cols_post[i] + num_transitions] = 1
-        end
+        petri_matrix[rows_with_zero_post_sum, random_cols_post .+ num_transitions] .= 1
     end
 
     return petri_matrix
@@ -155,28 +165,13 @@ function add_tokens_randomly(petri_matrix)
     return petri_matrix
 end
 
-# submodule for ArrivableGraph
-module ArrivableGraph
-
-using DataStructures # for deque
-
-export generate_reachability_graph
-
+# Contents of ArrivableGraph submodule
 """
 Identifies enabled transitions and calculates the resulting markings.
 """
 function get_enabled_transitions(pre_condition_matrix, change_matrix, current_marking_vector)
-    num_transitions = size(pre_condition_matrix, 2)
-    enabled_mask = trues(num_transitions)
-    for t in 1:num_transitions
-        for p in 1:size(pre_condition_matrix, 1)
-            if current_marking_vector[p] < pre_condition_matrix[p, t]
-                enabled_mask[t] = false
-                break
-            end
-        end
-    end
-    enabled_transitions = findall(enabled_mask)
+    enabled_mask = all(current_marking_vector .>= pre_condition_matrix, dims=1)
+    enabled_transitions = findall(vec(enabled_mask))
 
     if isempty(enabled_transitions)
         num_places = size(pre_condition_matrix, 1)
@@ -329,19 +324,8 @@ function generate_reachability_graph(incidence_matrix_with_initial; place_upper_
     )
 end
 
-end # module ArrivableGraph
 
-
-module SPN
-
-using ..DataGenerate.ArrivableGraph
-using SparseArrays
-using IterativeSolvers
-using LinearAlgebra
-using Random
-
-export filter_spn, get_spn_info
-
+# Contents of SPN submodule
 function _compute_state_equation_numba(num_vertices, edges, arc_transitions, lambda_values)
     state_matrix = spzeros(Float64, num_vertices + 1, num_vertices)
     for i in 1:length(edges)
@@ -365,18 +349,15 @@ function compute_state_equation(vertices, edges, arc_transitions, lambda_values)
 end
 
 function compute_average_markings(vertices::Matrix{Int}, steady_state_probs::Vector{Float64})
-    prob_col_vector = reshape(steady_state_probs, :, 1)
-    avg_tokens_per_place = sum(vertices .* prob_col_vector, dims=1)
+    avg_tokens_per_place = sum(vertices .* steady_state_probs, dims=1)
 
     unique_token_values = sort(unique(vertices))
     num_places = size(vertices, 2)
     marking_density_matrix = zeros(Float64, num_places, length(unique_token_values))
 
-    for place_idx in 1:num_places
-        for (token_idx, token_val) in enumerate(unique_token_values)
-            states_with_token = vertices[:, place_idx] .== token_val
-            marking_density_matrix[place_idx, token_idx] = sum(steady_state_probs[states_with_token])
-        end
+    for (token_idx, token_val) in enumerate(unique_token_values)
+        states_with_token = vertices .== token_val
+        marking_density_matrix[:, token_idx] = sum(states_with_token .* steady_state_probs, dims=1)'
     end
 
     return marking_density_matrix, vec(avg_tokens_per_place)
@@ -470,7 +451,7 @@ function filter_spn(petri_net_matrix; place_upper_bound=10, marks_lower_limit=4,
         return Dict(), false
     end
 
-    vertices, edges, arc_transitions, num_transitions, is_bounded = ArrivableGraph.generate_reachability_graph(
+    vertices, edges, arc_transitions, num_transitions, is_bounded = generate_reachability_graph(
         petri_net_matrix,
         place_upper_limit=place_upper_bound,
         max_markings_to_explore=marks_upper_limit,
@@ -503,17 +484,7 @@ function get_spn_info(petri_net_matrix, vertices, edges, arc_transitions, transi
     return _create_spn_result_dict(petri_net_matrix, vertices, edges, arc_transitions, transition_rates, probs, density, markings), true
 end
 
-end # module SPN
-
-
-module DataTransformation
-
-using ..DataGenerate.SPN
-using Random
-using Distributed
-
-export generate_petri_net_variations, generate_lambda_variations
-
+# Contents of DataTransformation submodule
 function _generate_candidate_matrices_numba(
     base_petri_matrix,
     enable_delete_edge,
@@ -523,25 +494,20 @@ function _generate_candidate_matrices_numba(
 )
     candidate_matrices = []
     num_places, num_cols = size(base_petri_matrix)
-    num_transitions = (num_cols - 1) ÷ 2
 
     if enable_delete_edge
-        for r in 1:num_places, c in 1:(num_cols - 1)
-            if base_petri_matrix[r, c] == 1
-                modified_matrix = copy(base_petri_matrix)
-                modified_matrix[r, c] = 0
-                push!(candidate_matrices, modified_matrix)
-            end
+        for idx in findall(isone, base_petri_matrix[:, 1:end-1])
+            modified_matrix = copy(base_petri_matrix)
+            modified_matrix[idx] = 0
+            push!(candidate_matrices, modified_matrix)
         end
     end
 
     if enable_add_edge
-        for r in 1:num_places, c in 1:(num_cols - 1)
-            if base_petri_matrix[r, c] == 0
-                modified_matrix = copy(base_petri_matrix)
-                modified_matrix[r, c] = 1
-                push!(candidate_matrices, modified_matrix)
-            end
+        for idx in findall(iszero, base_petri_matrix[:, 1:end-1])
+            modified_matrix = copy(base_petri_matrix)
+            modified_matrix[idx] = 1
+            push!(candidate_matrices, modified_matrix)
         end
     end
 
@@ -554,12 +520,10 @@ function _generate_candidate_matrices_numba(
     end
 
     if enable_delete_token && sum(base_petri_matrix[:, end]) > 1
-        for r in 1:num_places
-            if base_petri_matrix[r, end] >= 1
-                modified_matrix = copy(base_petri_matrix)
-                modified_matrix[r, end] -= 1
-                push!(candidate_matrices, modified_matrix)
-            end
+        for r in findall(x -> x >= 1, base_petri_matrix[:, end])
+            modified_matrix = copy(base_petri_matrix)
+            modified_matrix[r, end] -= 1
+            push!(candidate_matrices, modified_matrix)
         end
     end
 
@@ -589,7 +553,6 @@ function _generate_candidate_matrices(base_petri_matrix, config)
 end
 
 function _generate_rate_variations(base_variation, num_variations)
-    rate_variations = []
     p_net = base_variation["petri_net"]
     num_trans = (size(p_net, 2) - 1) ÷ 2
     if num_trans == 0
@@ -598,9 +561,9 @@ function _generate_rate_variations(base_variation, num_variations)
 
     vlist_as_vecs = [v for v in eachrow(base_variation["arr_vlist"])]
 
-    for _ in 1:num_variations
+    tasks = [Threads.@spawn begin
         new_rates = rand(1:10, num_trans)
-        s_probs, m_dens, avg_marks, success = SPN.generate_stochastic_net_task_with_rates(
+        s_probs, m_dens, avg_marks, success = generate_stochastic_net_task_with_rates(
             vlist_as_vecs,
             [e for e in eachrow(base_variation["arr_edge"])],
             base_variation["arr_tranidx"],
@@ -608,7 +571,7 @@ function _generate_rate_variations(base_variation, num_variations)
         )
 
         if success
-            new_result = Dict(
+            return Dict(
                 "petri_net" => p_net,
                 "arr_vlist" => base_variation["arr_vlist"],
                 "arr_edge" => base_variation["arr_edge"],
@@ -619,9 +582,11 @@ function _generate_rate_variations(base_variation, num_variations)
                 "spn_allmus" => avg_marks,
                 "spn_mu" => sum(avg_marks),
             )
-            push!(rate_variations, new_result)
         end
-    end
+    end for _ in 1:num_variations]
+
+    rate_variations = fetch.(filter(t -> !isnothing(t), tasks))
+
     return rate_variations
 end
 
@@ -638,8 +603,9 @@ function generate_petri_net_variations(petri_matrix, config)
     marks_lower = get(config, "marks_lower_limit", 4)
     marks_upper = get(config, "marks_upper_limit", 500)
 
-    results = pmap(candidate_matrices) do matrix
-        SPN.filter_spn(matrix, place_upper_bound=place_bound, marks_lower_limit=marks_lower, marks_upper_limit=marks_upper)
+    results = Vector{Tuple{Dict, Bool}}(undef, length(candidate_matrices))
+    @threads for i in 1:length(candidate_matrices)
+        results[i] = filter_spn(candidate_matrices[i], place_upper_bound=place_bound, marks_lower_limit=marks_lower, marks_upper_limit=marks_upper)
     end
 
     structural_variations = [res for (res, success) in results if success]
@@ -659,30 +625,137 @@ function generate_petri_net_variations(petri_matrix, config)
 end
 
 function generate_lambda_variations(petri_dict, num_lambda_variations)
-    lambda_variations = []
     petri_net = petri_dict["petri_net"]
     num_transitions = (size(petri_net, 2) - 1) ÷ 2
-
     vlist_as_vecs = [v for v in eachrow(petri_dict["arr_vlist"])]
 
-    while length(lambda_variations) < num_lambda_variations
+    tasks = [Threads.@spawn begin
         lambda_values = rand(1:10, num_transitions)
-        results_dict, success = SPN.get_spn_info(
+        results_dict, success = get_spn_info(
             petri_net,
             vlist_as_vecs,
             [e for e in eachrow(petri_dict["arr_edge"])],
             petri_dict["arr_tranidx"],
             lambda_values,
         )
-        if success
-            push!(lambda_variations, results_dict)
-        end
-    end
+        success ? results_dict : nothing
+    end for _ in 1:num_lambda_variations]
+
+    lambda_variations = fetch.(filter(t -> !isnothing(t), tasks))
 
     return lambda_variations
 end
 
+# Contents of Utils.jl
+"""
+Creates a directory if it does not already exist.
+"""
+function create_directory(path::String)
+    if !isdir(path)
+        mkpath(path)
+        println("Directory created: $path")
+    end
+end
 
-end # module DataTransformation
+"""
+Loads data from a TOML file.
+"""
+function load_toml_file(file_path::String)
+    return TOML.parsefile(file_path)
+end
 
-end # module DataGenerate
+"""
+Saves data to a JSON file.
+"""
+function save_data_to_json_file(file_path::String, data)
+    open(file_path, "w") do f
+        JSON3.write(f, data)
+    end
+end
+
+"""
+Loads data from a JSON file.
+"""
+function load_json_file(file_path::String)
+    open(file_path, "r") do f
+        return JSON3.read(f)
+    end
+end
+
+"""
+Counts the number of JSON files in a directory.
+"""
+function count_json_files(directory_path::String)
+    files = readdir(directory_path)
+    json_files = filter(x -> endswith(x, ".json"), files)
+    # The python version sorts the files by a number in the filename.
+    # We will replicate that logic here.
+    sort!(json_files, by = x -> parse(Int, x[5:end-5]))
+    return length(json_files), json_files
+end
+
+"""
+Samples a specified number of JSON files from a directory.
+"""
+function sample_json_files_from_directory(num_samples::Int, directory_path::String)
+    _, json_files = count_json_files(directory_path)
+    if isempty(json_files)
+        return []
+    end
+
+    num_to_sample = min(num_samples, length(json_files))
+    sampled_files = sample(json_files, num_to_sample, replace=false)
+
+    sampled_data = []
+    for file_name in sampled_files
+        file_path = joinpath(directory_path, file_name)
+        data = load_json_file(file_path)
+        # Filter out noisy data
+        if -100 <= data[:spn_mu] <= 100
+            push!(sampled_data, data)
+        else
+            # Replace noisy data with a new random sample
+            while true
+                new_file_name = rand(json_files)
+                if new_file_name ∉ sampled_files
+                    new_file_path = joinpath(directory_path, new_file_name)
+                    new_data = load_json_file(new_file_path)
+                    if -100 <= new_data[:spn_mu] <= 100
+                        push!(sampled_data, new_data)
+                        push!(sampled_files, new_file_name)
+                        break
+                    end
+                end
+            end
+        end
+    end
+    return sampled_data
+end
+
+
+"""
+Writes a sample to an HDF5 group.
+"""
+function write_to_hdf5(group, data; compression="gzip", compression_opts=4)
+    for (key, value) in data
+        try
+            if value isa AbstractArray && ndims(value) > 0
+                HDF5.create_dataset(group, key, value, ((true, true), (compression, compression_opts)))
+            else
+                HDF5.create_dataset(group, key, value)
+            end
+        catch e
+            println("Warning: Could not save key '$key' for sample $(HDF5.name(group)). Error: $e")
+        end
+    end
+end
+
+"""
+Appends a sample to a JSONL file.
+"""
+function write_to_jsonl(file_handler, data)
+    JSON3.write(file_handler, data)
+    write(file_handler, "\n")
+end
+
+end # module SPNGenerator

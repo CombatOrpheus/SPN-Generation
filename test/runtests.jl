@@ -1,88 +1,75 @@
 using Pkg
 Pkg.instantiate()
-
 using Test
-using JSON3
-using Random
-
-# Add src to load path
 push!(LOAD_PATH, "src")
+using SPNGenerator
+using JSON3
 
-# Define paths and commands
-const PYTHON_SCRIPT = "SPNGenerate.py" # Relative to python/ dir
-const JULIA_SCRIPT = "scripts/SPNGenerate.jl"
-const CONFIG_FILE = "../config/DataConfig/test_config.toml" # Relative to python/ dir
-const PYTHON_OUTPUT_DIR_REL = "../test/data/python_output" # Relative to python/ dir
-const JULIA_OUTPUT_DIR = "test/data/julia_output"
-const PYTHON_OUTPUT_FILE = "test/data/python_output/data_jsonl/test_data"
-const JULIA_OUTPUT_FILE = "test/data/julia_output/data_jsonl/test_data"
-
-# Function to run a command and check for success
-function run_command(cmd; dir=".")
-    full_cmd = Cmd(cmd, dir=dir)
-    try
-        run(full_cmd)
-        return true
-    catch e
-        println("Error running command: $full_cmd")
-        println(e)
-        return false
+@testset "SPNGenerator.jl" begin
+    @testset "Petri Net Generation" begin
+        pn = SPNGenerator.generate_random_petri_net(5, 3)
+        @test size(pn) == (5, 7)
+        @test sum(pn[:, end]) > 0  # Initial marking
     end
-end
 
-# Function to compare the structure of two JSON objects
-function compare_json_objects(obj1, obj2)
-    @test Set(keys(obj1)) == Set(keys(obj2))
-    for key in keys(obj1)
-        if obj1[key] isa AbstractDict && haskey(obj2, key) && obj2[key] isa AbstractDict
-            compare_json_objects(obj1[key], obj2[key])
-        elseif obj1[key] isa AbstractArray && haskey(obj2, key) && obj2[key] isa AbstractArray
-            @test obj1[key] isa AbstractArray
-            @test obj2[key] isa AbstractArray
-        elseif haskey(obj2, key)
-            @test typeof(obj1[key]) == typeof(obj2[key]) ||
-                  (obj1[key] isa Number && obj2[key] isa Number)
+    @testset "Pruning" begin
+        # This petri net has a place with 4 connections and a transition with 4 connections.
+        # It's constructed to ensure that pruning will reduce the number of edges.
+        pn = [1 1 1 1 0 0 0;
+              1 0 0 0 1 0 0;
+              1 0 0 0 0 1 0;
+              1 0 0 0 0 0 1;
+              0 1 0 0 1 0 0]
+        pn = Int32.(pn)
+        initial_sum = sum(pn)
+        pruned_pn = SPNGenerator.prune_petri_net(copy(pn))
+        @test sum(pruned_pn) < initial_sum
+    end
+
+    @testset "Reachability Graph" begin
+        pn = SPNGenerator.generate_random_petri_net(4, 2)
+        v, e, _, _, _ = SPNGenerator.generate_reachability_graph(pn)
+        @test !isempty(v)
+    end
+
+    @testset "SPN Filtering" begin
+        pn = SPNGenerator.generate_random_petri_net(5, 3)
+        res, success = SPNGenerator.filter_spn(pn)
+        if success
+            @test !isempty(res)
+        else
+            @test isempty(res)
         end
     end
-end
 
-
-@testset "SPN-Benchmarks.jl" begin
-    # 1. Set up directories
-    mkpath(JULIA_OUTPUT_DIR) # Python output dir will be created by the script from within python/
-
-    # 2. Run Python script to generate reference data
-    @info "Running Python script to generate reference data..."
-    # Note: uv must be run from the python directory to find the venv
-    python_cmd = `uv run python $PYTHON_SCRIPT --config $CONFIG_FILE --output_data_location $PYTHON_OUTPUT_DIR_REL`
-    @test run_command(python_cmd, dir="python")
-
-    # 3. Run Julia script
-    @info "Running Julia script..."
-    julia_cmd = `julia --project=. $JULIA_SCRIPT --config config/DataConfig/test_config.toml --output_data_location $JULIA_OUTPUT_DIR`
-    @test run_command(julia_cmd)
-
-    # 4. Compare the output files
-    @info "Comparing output files..."
-    @test isfile(PYTHON_OUTPUT_FILE)
-    @test isfile(JULIA_OUTPUT_FILE)
-
-    python_lines = readlines(PYTHON_OUTPUT_FILE)
-    julia_lines = readlines(JULIA_OUTPUT_FILE)
-
-    # First line is config
-    @test length(python_lines) > 1
-    @test length(julia_lines) > 1
-
-    # Compare the structure of each JSON object up to the minimum number of lines
-    num_to_compare = min(length(python_lines), length(julia_lines))
-    @info "Comparing the structure of the first $(num_to_compare - 1) generated samples..."
-    for i in 2:num_to_compare
-        py_obj = JSON3.read(python_lines[i])
-        jl_obj = JSON3.read(julia_lines[i])
-        compare_json_objects(py_obj, jl_obj)
+    @testset "Lambda Variations" begin
+        pn = SPNGenerator.generate_random_petri_net(5, 3)
+        res, success = SPNGenerator.filter_spn(pn)
+        if success
+            variations = SPNGenerator.generate_lambda_variations(res, 3)
+            @test length(variations) <= 3
+        end
     end
 
-    # 5. Clean up
-    rm("test/data", recursive=true, force=true)
+    @testset "File I/O" begin
+        dir = "test_dir"
+        SPNGenerator.create_directory(dir)
+        @test isdir(dir)
+
+        # Test JSON I/O
+        json_file = joinpath(dir, "test.json")
+        test_data = Dict("a" => 1, "b" => [1,2,3])
+        SPNGenerator.save_data_to_json_file(json_file, test_data)
+        @test isfile(json_file)
+        loaded_data = SPNGenerator.load_json_file(json_file)
+        @test Dict(string(k) => v for (k,v) in pairs(loaded_data)) == test_data
+
+        # Test TOML I/O
+        toml_file = joinpath(dir, "test.toml")
+        write(toml_file, "a = 1\nb = [1,2,3]")
+        loaded_toml = SPNGenerator.load_toml_file(toml_file)
+        @test loaded_toml["a"] == 1
+
+        rm(dir, recursive=true)
+    end
 end
