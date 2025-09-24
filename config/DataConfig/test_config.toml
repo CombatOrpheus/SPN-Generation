@@ -1,0 +1,15 @@
+output_data_location = "test/data"
+output_file = "test_data"
+output_format = "jsonl"
+number_of_samples_to_generate = 50
+number_of_parallel_jobs = 1
+minimum_number_of_places = 5
+maximum_number_of_places = 10
+minimum_number_of_transitions = 5
+maximum_number_of_transitions = 10
+place_upper_bound = 10
+marks_lower_limit = 4
+marks_upper_limit = 500
+enable_pruning = true
+enable_token_addition = true
+enable_transformations = false
