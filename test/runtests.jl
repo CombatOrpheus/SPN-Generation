@@ -1,5 +1,5 @@
 using Pkg
-Pkg.instantiate()
+Pkg.activate(".")
 using Test
 push!(LOAD_PATH, "src")
 using SPNGenerator
@@ -13,17 +13,17 @@ using JSON3
     end
 
     @testset "Pruning" begin
-        # This petri net has a place with 4 connections and a transition with 4 connections.
-        # It's constructed to ensure that pruning will reduce the number of edges.
-        pn = [1 1 1 1 0 0 0;
-              1 0 0 0 1 0 0;
-              1 0 0 0 0 1 0;
-              1 0 0 0 0 0 1;
-              0 1 0 0 1 0 0]
+        # This petri net has a place with 4 connections, so at least one edge should be pruned.
+        pn = [1 1 1 1 0 0 0 1;
+              1 0 0 0 1 0 0 0;
+              1 0 0 0 0 1 0 0;
+              1 0 0 0 0 0 1 0;
+              0 1 0 0 1 0 0 0]
         pn = Int32.(pn)
-        initial_sum = sum(pn)
+        initial_edges = sum(pn[:, 1:end-1])
         pruned_pn = SPNGenerator.prune_petri_net(copy(pn))
-        @test sum(pruned_pn) < initial_sum
+        final_edges = sum(pruned_pn[:, 1:end-1])
+        @test final_edges < initial_edges
     end
 
     @testset "Reachability Graph" begin

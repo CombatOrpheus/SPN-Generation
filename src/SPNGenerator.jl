@@ -187,7 +187,7 @@ function _initialize_bfs(initial_marking)
     visited_markings_list = [initial_marking]
     explored_markings_dict = Dict(initial_marking => marking_index_counter)
     processing_queue = Queue{Int}()
-    enqueue!(processing_queue, marking_index_counter)
+    push!(processing_queue, marking_index_counter)
     return marking_index_counter, visited_markings_list, explored_markings_dict, processing_queue
 end
 
@@ -238,7 +238,7 @@ function _update_graph!(
 
         push!(visited_markings_list, new_marking)
         explored_markings_dict[new_marking] = marking_index_counter
-        enqueue!(processing_queue, marking_index_counter)
+        push!(processing_queue, marking_index_counter)
         push!(reachability_edges, [current_marking_index, marking_index_counter])
     else
         existing_index = explored_markings_dict[new_marking]
@@ -269,7 +269,7 @@ function generate_reachability_graph(incidence_matrix_with_initial; place_upper_
     is_bounded = true
 
     while !isempty(processing_queue)
-        current_marking_index = dequeue!(processing_queue)
+        current_marking_index = popfirst!(processing_queue)
 
         enabled_next_markings, enabled_transition_indices, stop_exploration = _process_marking(
             current_marking_index,
@@ -603,10 +603,15 @@ function generate_petri_net_variations(petri_matrix, config)
     marks_lower = get(config, "marks_lower_limit", 4)
     marks_upper = get(config, "marks_upper_limit", 500)
 
-    results = Vector{Tuple{Dict, Bool}}(undef, length(candidate_matrices))
-    @threads for i in 1:length(candidate_matrices)
-        results[i] = filter_spn(candidate_matrices[i], place_upper_bound=place_bound, marks_lower_limit=marks_lower, marks_upper_limit=marks_upper)
-    end
+    tasks = [
+        Threads.@spawn filter_spn(
+            matrix,
+            place_upper_bound=place_bound,
+            marks_lower_limit=marks_lower,
+            marks_upper_limit=marks_upper
+        ) for matrix in candidate_matrices
+    ]
+    results = fetch.(tasks)
 
     structural_variations = [res for (res, success) in results if success]
 
