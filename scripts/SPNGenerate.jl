@@ -1,9 +1,6 @@
 push!(LOAD_PATH, "src")
 
-using Distributed
-@everywhere push!(LOAD_PATH, "src")
-@everywhere using DataGenerate
-@everywhere using Utils
+using SPNGenerator
 using ArgParse
 using ProgressMeter
 using HDF5
@@ -16,15 +13,15 @@ function generate_single_spn(config)
         place_num = rand(config["minimum_number_of_places"]:config["maximum_number_of_places"])
         trans_num = rand(config["minimum_number_of_transitions"]:config["maximum_number_of_transitions"])
 
-        petri_matrix = DataGenerate.generate_random_petri_net(place_num, trans_num)
+        petri_matrix = SPNGenerator.generate_random_petri_net(place_num, trans_num)
         if get(config, "enable_pruning", false)
-            petri_matrix = DataGenerate.prune_petri_net(petri_matrix)
+            petri_matrix = SPNGenerator.prune_petri_net(petri_matrix)
         end
         if get(config, "enable_token_addition", false)
-            petri_matrix = DataGenerate.add_tokens_randomly(petri_matrix)
+            petri_matrix = SPNGenerator.add_tokens_randomly(petri_matrix)
         end
 
-        results, success = DataGenerate.SPN.filter_spn(
+        results, success = SPNGenerator.filter_spn(
             petri_matrix,
             place_upper_bound=config["place_upper_bound"],
             marks_lower_limit=config["marks_lower_limit"],
@@ -43,7 +40,7 @@ function augment_single_spn(sample, config)
     end
 
     petri_net = sample["petri_net"]
-    augmented_data = DataGenerate.DataTransformation.generate_petri_net_variations(
+    augmented_data = SPNGenerator.generate_petri_net_variations(
         petri_net,
         config,
     )
@@ -115,7 +112,7 @@ function setup_arg_parser()
 end
 
 function load_config(args)
-    config = isfile(args["config"]) ? Utils.load_toml_file(args["config"]) : Dict()
+    config = isfile(args["config"]) ? SPNGenerator.load_toml_file(args["config"]) : Dict()
     for (key, value) in args
         if !isnothing(value)
             config[key] = value
@@ -127,12 +124,13 @@ end
 function run_generation_from_config(config)
     output_format = get(config, "output_format", "hdf5")
     output_dir = joinpath(config["output_data_location"], "data_$(output_format)")
-    Utils.create_directory(output_dir)
+    SPNGenerator.create_directory(output_dir)
     output_path = joinpath(output_dir, config["output_file"])
 
     println("Generating $(config["number_of_samples_to_generate"]) initial SPN samples...")
-    initial_samples = @showprogress pmap(1:config["number_of_samples_to_generate"]) do _
-        generate_single_spn(config)
+    initial_samples = Vector{Any}(undef, config["number_of_samples_to_generate"])
+    Threads.@threads for i in 1:config["number_of_samples_to_generate"]
+        initial_samples[i] = generate_single_spn(config)
     end
 
     valid_samples = filter(x -> !isnothing(x), initial_samples)
@@ -141,8 +139,9 @@ function run_generation_from_config(config)
     all_samples = []
     if get(config, "enable_transformations", false)
         println("Augmenting samples...")
-        augmented_lists = @showprogress pmap(valid_samples) do sample
-            augment_single_spn(sample, config)
+        augmented_lists = Vector{Any}(undef, length(valid_samples))
+        Threads.@threads for i in 1:length(valid_samples)
+            augmented_lists[i] = augment_single_spn(valid_samples[i], config)
         end
         all_samples = vcat(augmented_lists...)
     else
@@ -161,7 +160,7 @@ function run_generation_from_config(config)
             println("Writing $(length(all_samples)) samples to HDF5...")
             @showprogress for (i, sample) in enumerate(all_samples)
                 sample_group = create_group(dataset_group, "sample_$(lpad(i, 7, '0'))")
-                Utils.write_to_hdf5(sample_group, sample)
+                SPNGenerator.write_to_hdf5(sample_group, sample)
             end
             attrs(hf)["total_samples_written"] = length(all_samples)
         end
@@ -170,7 +169,7 @@ function run_generation_from_config(config)
         open(output_path, "w") do f
             write(f, JSON3.write(config) * "\n")
             @showprogress for sample in all_samples
-                Utils.write_to_jsonl(f, sample)
+                SPNGenerator.write_to_jsonl(f, sample)
             end
         end
         println("JSONL file '$output_path' created successfully.")
@@ -181,13 +180,6 @@ function main()
     s = setup_arg_parser()
     args = parse_args(s)
     config = load_config(args)
-
-    # Add workers for parallel processing
-    num_jobs = get(config, "number_of_parallel_jobs", 1)
-    if num_jobs > 1 && nworkers() < num_jobs
-        addprocs(num_jobs - nworkers())
-    end
-
     run_generation_from_config(config)
 end
 
