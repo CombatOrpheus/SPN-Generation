@@ -83,11 +83,14 @@ function sample_and_transform_data(config)
         end
     end
 
-    transformed_data = []
-    @showprogress for data in all_data
-        new_data = DataGenerate.DataTransformation.generate_lambda_variations(data, config["lambda_variations_per_sample"])
-        append!(transformed_data, new_data)
+    transformed_data = Vector{Any}(undef, length(all_data))
+    p = Progress(length(all_data))
+    Threads.@threads for i in 1:length(all_data)
+        new_data = DataGenerate.DataTransformation.generate_lambda_variations(all_data[i], config["lambda_variations_per_sample"])
+        transformed_data[i] = new_data
+        next!(p)
     end
+    transformed_data = vcat(filter(x -> !isnothing(x), transformed_data)...)
 
     return transformed_data
 end

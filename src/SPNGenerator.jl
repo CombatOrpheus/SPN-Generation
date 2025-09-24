@@ -561,7 +561,8 @@ function _generate_rate_variations(base_variation, num_variations)
 
     vlist_as_vecs = [v for v in eachrow(base_variation["arr_vlist"])]
 
-    tasks = [Threads.@spawn begin
+    rate_variations = []
+    for _ in 1:num_variations
         new_rates = rand(1:10, num_trans)
         s_probs, m_dens, avg_marks, success = generate_stochastic_net_task_with_rates(
             vlist_as_vecs,
@@ -571,7 +572,7 @@ function _generate_rate_variations(base_variation, num_variations)
         )
 
         if success
-            return Dict(
+            push!(rate_variations, Dict(
                 "petri_net" => p_net,
                 "arr_vlist" => base_variation["arr_vlist"],
                 "arr_edge" => base_variation["arr_edge"],
@@ -581,11 +582,9 @@ function _generate_rate_variations(base_variation, num_variations)
                 "spn_markdens" => m_dens,
                 "spn_allmus" => avg_marks,
                 "spn_mu" => sum(avg_marks),
-            )
+            ))
         end
-    end for _ in 1:num_variations]
-
-    rate_variations = fetch.(filter(t -> !isnothing(t), tasks))
+    end
 
     return rate_variations
 end
@@ -603,15 +602,14 @@ function generate_petri_net_variations(petri_matrix, config)
     marks_lower = get(config, "marks_lower_limit", 4)
     marks_upper = get(config, "marks_upper_limit", 500)
 
-    tasks = [
-        Threads.@spawn filter_spn(
+    results = [
+        filter_spn(
             matrix,
             place_upper_bound=place_bound,
             marks_lower_limit=marks_lower,
             marks_upper_limit=marks_upper
         ) for matrix in candidate_matrices
     ]
-    results = fetch.(tasks)
 
     structural_variations = [res for (res, success) in results if success]
 
@@ -634,7 +632,8 @@ function generate_lambda_variations(petri_dict, num_lambda_variations)
     num_transitions = (size(petri_net, 2) - 1) ÷ 2
     vlist_as_vecs = [v for v in eachrow(petri_dict["arr_vlist"])]
 
-    tasks = [Threads.@spawn begin
+    lambda_variations = []
+    for _ in 1:num_lambda_variations
         lambda_values = rand(1:10, num_transitions)
         results_dict, success = get_spn_info(
             petri_net,
@@ -643,10 +642,10 @@ function generate_lambda_variations(petri_dict, num_lambda_variations)
             petri_dict["arr_tranidx"],
             lambda_values,
         )
-        success ? results_dict : nothing
-    end for _ in 1:num_lambda_variations]
-
-    lambda_variations = fetch.(filter(t -> !isnothing(t), tasks))
+        if success
+            push!(lambda_variations, results_dict)
+        end
+    end
 
     return lambda_variations
 end

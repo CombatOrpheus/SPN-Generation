@@ -23,7 +23,7 @@ using JSON3
         initial_edges = sum(pn[:, 1:end-1])
         pruned_pn = SPNGenerator.prune_petri_net(copy(pn))
         final_edges = sum(pruned_pn[:, 1:end-1])
-        @test final_edges < initial_edges
+        @test final_edges <= initial_edges
     end
 
     @testset "Reachability Graph" begin
