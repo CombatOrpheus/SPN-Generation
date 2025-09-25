@@ -1,0 +1,26 @@
+task_type = "grid"
+
+# --- SPN Generation Parameters ---
+number_of_samples_to_generate = 200
+number_of_parallel_jobs = 4
+minimum_number_of_places = 5
+maximum_number_of_places = 15
+minimum_number_of_transitions = 5
+maximum_number_of_transitions = 15
+place_upper_bound = 20
+marks_lower_limit = 1
+marks_upper_limit = 50
+enable_pruning = true
+enable_token_addition = true
+enable_transformations = false # Transformations are handled by the grid script
+
+# --- Grid Partitioning Parameters ---
+places_grid_boundaries = [5, 10, 15]
+markings_grid_boundaries = [10, 20, 30, 40, 50]
+samples_per_grid = 20
+lambda_variations_per_sample = 5
+
+# --- Output Parameters ---
+output_grid_location = "data/grid_output"
+output_file = "grid_dataset.hdf5"
+output_format = "hdf5"

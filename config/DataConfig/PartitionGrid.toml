@@ -1,0 +1,10 @@
+accumulation_data = false
+samples_per_grid = 100
+lambda_variations_per_sample = 1
+output_format = "jsonl"
+output_file = "grid_dataset"
+places_grid_boundaries = [7, 9, 11, 13, 15]
+markings_grid_boundaries = [8, 12, 16, 20, 24, 28, 32, 36, 40, 44]
+raw_data_location = "data/raw/data_jsonl/spn_dataset.jsonl"
+temporary_grid_location = "data/temp_grid"
+output_grid_location = "data/grid"

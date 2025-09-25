@@ -1,0 +1,17 @@
+number_of_samples_to_generate = 100
+number_of_parallel_jobs = 4
+minimum_number_of_places = 5
+maximum_number_of_places = 10
+minimum_number_of_transitions = 5
+maximum_number_of_transitions = 10
+place_upper_bound = 10
+marks_lower_limit = 1
+marks_upper_limit = 10
+enable_pruning = false
+enable_token_addition = false
+enable_transformations = false
+maximum_transformations_per_sample = 3
+output_format = "jsonl"
+output_file = "spn_dataset.jsonl"
+output_data_location = "data/raw"
+visualization_output_location = "data/raw/img"
