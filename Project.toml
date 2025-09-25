@@ -1,4 +1,5 @@
-name = "SPN-Benchmarks"
+name = "SPNGenerator"
+uuid = "a9e1c5c5-a753-4c9c-a7a4-0e3ad54a1a5b"
 authors = ["Jules"]
 version = "0.1.0"
 
@@ -9,5 +10,14 @@ DataStructures = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
 HDF5 = "f67ccb44-e63f-5c2f-98bd-6dc0ccc4ba2f"
 IterativeSolvers = "42fd0dbc-a981-5370-80f2-aaf504508153"
 JSON3 = "0f8b85d8-7281-11e9-16c2-39a750bddbf1"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 ProgressMeter = "92933f4c-e287-5a05-a399-4b506db050ca"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 TOML = "fa267f1f-6049-4f14-aa54-33bafae1ed76"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]
