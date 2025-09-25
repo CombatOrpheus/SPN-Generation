@@ -56,7 +56,7 @@ function main()
 
             try
                 open(log_file, "w") do log
-                    cmd = `julia $script_to_run --config $config_path`
+                    cmd = `julia --project=. $script_to_run --config $config_path`
                     process = run(pipeline(cmd, stdout=log, stderr=log))
                     if process.exitcode == 0
                         println("$scenario_name completed successfully.")
