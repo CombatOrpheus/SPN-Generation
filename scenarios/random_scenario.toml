@@ -1,0 +1,22 @@
+task_type = "random"
+
+# SPN Generation Parameters
+number_of_samples_to_generate = 50
+number_of_parallel_jobs = 2
+minimum_number_of_places = 5
+maximum_number_of_places = 8
+minimum_number_of_transitions = 5
+maximum_number_of_transitions = 8
+place_upper_bound = 10
+marks_lower_limit = 1
+marks_upper_limit = 10
+enable_pruning = true
+enable_token_addition = true
+enable_transformations = true
+maximum_transformations_per_sample = 2
+lambda_variations_per_sample = 1
+
+# Output Parameters
+output_data_location = "data/random_output"
+output_file = "random_dataset.jsonl"
+output_format = "jsonl"

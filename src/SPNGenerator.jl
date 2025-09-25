@@ -3,21 +3,72 @@ module SPNGenerator
 using Random
 using DataStructures
 using SparseArrays
+using HDF5
 using IterativeSolvers
 using LinearAlgebra
 using TOML
 using JSON3
 using Base.Threads
+using ProgressMeter
 
 # Exports from DataGenerate and its submodules
 export generate_random_petri_net, prune_petri_net, add_tokens_randomly
 export generate_reachability_graph
-export filter_spn, get_spn_info
+export filter_spn, get_spn_info, generate_single_spn, augment_single_spn
 export generate_petri_net_variations, generate_lambda_variations
 
 # Exports from Utils
 export create_directory, load_toml_file, save_data_to_json_file, load_json_file, count_json_files, sample_json_files_from_directory
-export write_to_hdf5, write_to_jsonl
+export write_to_hdf5, write_to_jsonl, run_generation_from_config
+
+function generate_single_spn(config)
+    max_attempts = 100
+    for _ in 1:max_attempts
+        place_num = rand(config["minimum_number_of_places"]:config["maximum_number_of_places"])
+        trans_num = rand(config["minimum_number_of_transitions"]:config["maximum_number_of_transitions"])
+
+        petri_matrix = generate_random_petri_net(place_num, trans_num)
+        if get(config, "enable_pruning", false)
+            petri_matrix = prune_petri_net(petri_matrix)
+        end
+        if get(config, "enable_token_addition", false)
+            petri_matrix = add_tokens_randomly(petri_matrix)
+        end
+
+        results, success = filter_spn(
+            petri_matrix,
+            place_upper_bound=config["place_upper_bound"],
+            marks_lower_limit=config["marks_lower_limit"],
+            marks_upper_limit=config["marks_upper_limit"],
+        )
+        if success
+            return results
+        end
+    end
+    return nothing
+end
+
+function augment_single_spn(sample, config)
+    if isnothing(sample) || !haskey(sample, "petri_net")
+        return []
+    end
+
+    petri_net = sample["petri_net"]
+    augmented_data = generate_lambda_variations(
+        sample,
+        config["lambda_variations_per_sample"],
+    )
+
+    if isempty(augmented_data)
+        return []
+    end
+
+    max_transforms = get(config, "maximum_transformations_per_sample", length(augmented_data))
+    if length(augmented_data) > max_transforms
+        return sample(augmented_data, max_transforms, replace=false)
+    end
+    return augmented_data
+end
 
 # Contents of DataGenerate.jl
 """
@@ -760,6 +811,65 @@ Appends a sample to a JSONL file.
 function write_to_jsonl(file_handler, data)
     JSON3.write(file_handler, data)
     write(file_handler, "\n")
+end
+
+function run_generation_from_config(config)
+    output_format = get(config, "output_format", "hdf5")
+    output_dir = joinpath(config["output_data_location"], "data_$(output_format)")
+    create_directory(output_dir)
+    output_path = joinpath(output_dir, config["output_file"])
+
+    println("Generating $(config["number_of_samples_to_generate"]) initial SPN samples...")
+    initial_samples = Vector{Any}(undef, config["number_of_samples_to_generate"])
+    p = Progress(config["number_of_samples_to_generate"])
+    Threads.@threads for i in 1:config["number_of_samples_to_generate"]
+        initial_samples[i] = generate_single_spn(config)
+        next!(p)
+    end
+
+    valid_samples = filter(x -> !isnothing(x), initial_samples)
+    println("Generated $(length(valid_samples)) valid initial samples.")
+
+    all_samples = []
+    if get(config, "enable_transformations", false)
+        println("Augmenting samples...")
+        augmented_lists = Vector{Any}(undef, length(valid_samples))
+        p = Progress(length(valid_samples))
+        Threads.@threads for i in 1:length(valid_samples)
+            augmented_lists[i] = augment_single_spn(valid_samples[i], config)
+            next!(p)
+        end
+        all_samples = vcat(augmented_lists...)
+    else
+        all_samples = valid_samples
+    end
+
+    if isempty(all_samples)
+        println("No samples were generated. Skipping file writing and reporting.")
+        return
+    end
+
+    if output_format == "hdf5"
+        h5open(output_path, "w") do hf
+            attrs(hf)["generation_config"] = JSON3.write(config)
+            dataset_group = create_group(hf, "dataset_samples")
+            println("Writing $(length(all_samples)) samples to HDF5...")
+            @showprogress for (i, sample) in enumerate(all_samples)
+                sample_group = create_group(dataset_group, "sample_$(lpad(i, 7, '0'))")
+                write_to_hdf5(sample_group, sample)
+            end
+            attrs(hf)["total_samples_written"] = length(all_samples)
+        end
+        println("HDF5 file '$output_path' created successfully.")
+    elseif output_format == "jsonl"
+        open(output_path, "w") do f
+            write(f, JSON3.write(config) * "\n")
+            @showprogress for sample in all_samples
+                write_to_jsonl(f, sample)
+            end
+        end
+        println("JSONL file '$output_path' created successfully.")
+    end
 end
 
 end # module SPNGenerator
