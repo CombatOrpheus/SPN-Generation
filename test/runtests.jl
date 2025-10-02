@@ -1,5 +1,3 @@
-using Pkg
-Pkg.activate(".")
 using Test
 push!(LOAD_PATH, "src")
 using SPNGenerator
@@ -10,6 +8,22 @@ using JSON3
         pn = SPNGenerator.generate_random_petri_net(5, 3)
         @test size(pn) == (5, 7)
         @test sum(pn[:, end]) > 0  # Initial marking
+    end
+
+    @testset "Batch Petri Net Generation" begin
+        batch_size = 4
+        pns = SPNGenerator.generate_random_petri_net(5, 3, batch_size)
+        @test size(pns) == (5, 7, batch_size)
+
+        # Check that not all matrices in the batch are identical
+        all_same = true
+        for i in 2:batch_size
+            if pns[:, :, i] != pns[:, :, 1]
+                all_same = false
+                break
+            end
+        end
+        @test !all_same
     end
 
     @testset "Pruning" begin

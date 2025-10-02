@@ -72,50 +72,73 @@ end
 
 # Contents of DataGenerate.jl
 """
-Initializes the Petri net matrix and selects the first connection.
+Initializes the Petri net matrix and marks the first connected place and transition.
 """
-function _initialize_petri_net(num_places::Int, num_transitions::Int)
-    remaining_nodes = collect(1:(num_places + num_transitions))
+function _initialize_petri_net_with_masks(num_places::Int, num_transitions::Int)
     petri_matrix = zeros(Int32, num_places, 2 * num_transitions + 1)
 
-    first_place = rand(1:num_places)
-    first_transition = rand((num_places + 1):(num_places + num_transitions))
+    connected_places = falses(num_places)
+    connected_transitions = falses(num_transitions)
 
-    filter!(x -> x != first_place, remaining_nodes)
-    filter!(x -> x != first_transition, remaining_nodes)
+    first_place_idx = rand(1:num_places)
+    first_transition_idx = rand(1:num_transitions)
+
+    connected_places[first_place_idx] = true
+    connected_transitions[first_transition_idx] = true
 
     if rand() <= 0.5
-        petri_matrix[first_place, first_transition - num_places] = 1
+        petri_matrix[first_place_idx, first_transition_idx] = 1
     else
-        petri_matrix[first_place, first_transition - num_places + num_transitions] = 1
+        petri_matrix[first_place_idx, first_transition_idx + num_transitions] = 1
     end
 
-    shuffle!(remaining_nodes)
-    sub_graph = [first_place, first_transition]
-    return petri_matrix, remaining_nodes, sub_graph
+    return petri_matrix, connected_places, connected_transitions
 end
 
 """
-Connects the remaining nodes to the sub-graph.
+Connects the remaining nodes to the sub-graph using boolean masks.
 """
-function _connect_remaining_nodes(petri_matrix, remaining_nodes, sub_graph, num_places, num_transitions)
-    for node in shuffle(remaining_nodes)
-        sub_places = filter(x -> x <= num_places, sub_graph)
-        sub_transitions = filter(x -> x > num_places, sub_graph)
+function _connect_remaining_nodes_with_masks(petri_matrix, connected_places, connected_transitions)
+    num_places, num_cols = size(petri_matrix)
+    num_transitions = (num_cols - 1) ÷ 2
 
-        place, transition = if node <= num_places
-            (node, rand(sub_transitions))
-        else
-            (rand(sub_places), node)
+    unconnected_nodes = []
+    for i in 1:num_places
+        if !connected_places[i]
+            push!(unconnected_nodes, (:place, i))
         end
-
-        if rand() <= 0.5
-            petri_matrix[place, transition - num_places] = 1
-        else
-            petri_matrix[place, transition - num_places + num_transitions] = 1
+    end
+    for i in 1:num_transitions
+        if !connected_transitions[i]
+            push!(unconnected_nodes, (:transition, i))
         end
+    end
+    shuffle!(unconnected_nodes)
 
-        push!(sub_graph, node)
+    for (node_type, node_idx) in unconnected_nodes
+        if node_type == :place
+            connected_transition_indices = findall(connected_transitions)
+            if isempty(connected_transition_indices) continue end
+            transition_to_connect = rand(connected_transition_indices)
+
+            if rand() < 0.5
+                petri_matrix[node_idx, transition_to_connect] = 1
+            else
+                petri_matrix[node_idx, transition_to_connect + num_transitions] = 1
+            end
+            connected_places[node_idx] = true
+        else # :transition
+            connected_place_indices = findall(connected_places)
+            if isempty(connected_place_indices) continue end
+            place_to_connect = rand(connected_place_indices)
+
+            if rand() < 0.5
+                petri_matrix[place_to_connect, node_idx] = 1
+            else
+                petri_matrix[place_to_connect, node_idx + num_transitions] = 1
+            end
+            connected_transitions[node_idx] = true
+        end
     end
     return petri_matrix
 end
@@ -124,14 +147,68 @@ end
 Generates a random Petri net matrix.
 """
 function generate_random_petri_net(num_places::Int, num_transitions::Int)
-    petri_matrix, remaining_nodes, sub_graph = _initialize_petri_net(num_places, num_transitions)
-    petri_matrix = _connect_remaining_nodes(petri_matrix, remaining_nodes, sub_graph, num_places, num_transitions)
+    petri_matrix, connected_places, connected_transitions = _initialize_petri_net_with_masks(num_places, num_transitions)
+    petri_matrix = _connect_remaining_nodes_with_masks(petri_matrix, connected_places, connected_transitions)
 
     # Add an initial marking
     random_place = rand(1:num_places)
     petri_matrix[random_place, end] = 1
 
     return petri_matrix
+end
+
+"""
+Adds a random number of extra connections to a Petri net matrix.
+"""
+function _add_extra_connections(petri_matrix, max_extra_connections=5)
+    num_places, num_cols = size(petri_matrix)
+    num_transitions = (num_cols - 1) ÷ 2
+
+    num_to_add = rand(1:max_extra_connections)
+
+    zero_indices = findall(iszero, view(petri_matrix, :, 1:(2*num_transitions)))
+
+    if isempty(zero_indices)
+        return petri_matrix
+    end
+
+    shuffle!(zero_indices)
+
+    num_to_add = min(num_to_add, length(zero_indices))
+
+    for i in 1:num_to_add
+        petri_matrix[zero_indices[i]] = 1
+    end
+
+    return petri_matrix
+end
+
+"""
+Generates a batch of random Petri net matrices.
+"""
+function generate_random_petri_net(num_places::Int, num_transitions::Int, batch_size::Int)
+    # Generate a base connected Petri net
+    base_matrix = generate_random_petri_net(num_places, num_transitions)
+
+    # Create a 3D array to hold the batch
+    batch_matrices = Array{Int32, 3}(undef, num_places, 2 * num_transitions + 1, batch_size)
+
+    for i in 1:batch_size
+        # Create a copy of the base matrix
+        matrix_copy = copy(base_matrix)
+
+        # Add a random number of extra connections
+        matrix_copy = _add_extra_connections(matrix_copy)
+
+        # Reset the initial marking and add a new one
+        matrix_copy[:, end] .= 0
+        random_place = rand(1:num_places)
+        matrix_copy[random_place, end] = 1
+
+        batch_matrices[:, :, i] = matrix_copy
+    end
+
+    return batch_matrices
 end
 
 """
@@ -151,9 +228,9 @@ function delete_excess_edges(petri_matrix, num_transitions)
     end
 
     # Transitions
-    transition_sums = sum(petri_matrix, dims=1)
-    for i in findall(s -> s >= 3, transition_sums[1, 1:(2*num_transitions)])
-        edge_indices = findall(isone, petri_matrix[:, i])
+    transition_sums = sum(view(petri_matrix, :, 1:(2*num_transitions)), dims=1)
+    for i in findall(s -> s >= 3, vec(transition_sums))
+        edge_indices = findall(isone, view(petri_matrix, :, i))
         if length(edge_indices) > 2
             indices_to_remove = shuffle(edge_indices)[1:(length(edge_indices) - 2)]
             petri_matrix[indices_to_remove, i] .= 0
@@ -202,7 +279,9 @@ Prunes a Petri net by deleting edges and adding nodes.
 function prune_petri_net(petri_matrix)
     num_transitions = (size(petri_matrix, 2) - 1) ÷ 2
     petri_matrix = delete_excess_edges(petri_matrix, num_transitions)
-    petri_matrix = add_missing_connections(petri_matrix, num_transitions)
+    # Note: add_missing_connections was removed as it can add more edges than pruning removes,
+    # which violates the expectation of a pruning function. The delete_excess_edges function
+    # should be implemented safely to avoid disconnecting the net.
     return petri_matrix
 end
 
