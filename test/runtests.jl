@@ -1,5 +1,3 @@
-using Pkg
-Pkg.activate(".")
 using Test
 push!(LOAD_PATH, "src")
 using SPNGenerator
@@ -21,9 +19,9 @@ using JSON3
               0 1 0 0 1 0 0 0]
         pn = Int32.(pn)
         initial_edges = sum(pn[:, 1:end-1])
-        pruned_pn = SPNGenerator.prune_petri_net(copy(pn))
+        pruned_pn = SPNGenerator.delete_excess_edges(copy(pn), 3)
         final_edges = sum(pruned_pn[:, 1:end-1])
-        @test final_edges <= initial_edges
+        @test final_edges < initial_edges
     end
 
     @testset "Reachability Graph" begin

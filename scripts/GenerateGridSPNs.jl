@@ -7,6 +7,7 @@ using HDF5
 using JSON3
 using Random
 using TOML
+using Logging
 
 function get_grid_index(value, grid_boundaries)
     for (i, boundary) in enumerate(grid_boundaries)
@@ -67,23 +68,23 @@ function package_dataset(config, data)
             attrs(hf)["generation_config"] = JSON3.write(config)
             dataset_group = create_group(hf, "dataset_samples")
 
-            println("Writing $(length(data)) samples to HDF5...")
+            @info "Writing $(length(data)) samples to HDF5..."
             @showprogress for (i, sample) in enumerate(data)
                 sample_group = create_group(dataset_group, "sample_$(lpad(i, 7, '0'))")
                 SPNGenerator.write_to_hdf5(sample_group, sample)
             end
             attrs(hf)["total_samples_written"] = length(data)
         end
-        println("HDF5 file '$output_path' created successfully.")
+        @info "HDF5 file '$output_path' created successfully."
     elseif output_format == "jsonl"
         open(output_path, "w") do f
             write(f, JSON3.write(config) * "\n")
-            println("Writing $(length(data)) samples to JSONL...")
+            @info "Writing $(length(data)) samples to JSONL..."
             @showprogress for sample in data
                 SPNGenerator.write_to_jsonl(f, sample)
             end
         end
-        println("JSONL file '$output_path' created successfully.")
+        @info "JSONL file '$output_path' created successfully."
     end
 end
 
@@ -98,7 +99,7 @@ function main()
     config = SPNGenerator.load_toml_file(args["config"])
 
     # 1. Generate initial SPN samples
-    println("Generating $(config["number_of_samples_to_generate"]) initial SPN samples...")
+    @info "Generating $(config["number_of_samples_to_generate"]) initial SPN samples..."
     initial_samples = Vector{Any}(undef, config["number_of_samples_to_generate"])
     p = Progress(config["number_of_samples_to_generate"], "Generating initial samples: ")
     Threads.@threads for i in 1:config["number_of_samples_to_generate"]
@@ -106,7 +107,7 @@ function main()
         next!(p)
     end
     valid_samples = filter(x -> !isnothing(x), initial_samples)
-    println("Generated $(length(valid_samples)) valid initial samples.")
+    @info "Generated $(length(valid_samples)) valid initial samples."
 
     # 2. Sample from grid and apply transformations
     processed_data = sample_and_transform_data(config, valid_samples)
