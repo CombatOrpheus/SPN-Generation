@@ -1,5 +1,3 @@
-using Pkg
-Pkg.activate(".")
 using Test
 push!(LOAD_PATH, "src")
 using SPNGenerator

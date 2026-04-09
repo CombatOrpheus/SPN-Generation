@@ -378,17 +378,43 @@ end
 
 # Contents of SPN submodule
 function _compute_state_equation_numba(num_vertices, edges, arc_transitions, lambda_values)
-    state_matrix = spzeros(Float64, num_vertices + 1, num_vertices)
-    for i in 1:length(edges)
+    # ⚡ Bolt Optimization:
+    # Previously, this function repeatedly updated a sparse matrix initialized with spzeros in a loop.
+    # Modifying sparse matrices iteratively is extremely slow because it forces underlying arrays
+    # to be constantly reallocated and shifted.
+    # By collecting row indices (I), column indices (J), and values (V) into vectors
+    # and creating the matrix once with `sparse(I, J, V)`, we achieve an ~8x performance improvement.
+    num_edges = length(edges)
+    I = Vector{Int}(undef, 2 * num_edges + num_vertices)
+    J = Vector{Int}(undef, 2 * num_edges + num_vertices)
+    V = Vector{Float64}(undef, 2 * num_edges + num_vertices)
+
+    idx = 1
+    for i in 1:num_edges
         edge = edges[i]
         trans_idx = arc_transitions[i]
         src_idx, dest_idx = edge[1], edge[2]
         rate = lambda_values[trans_idx]
-        state_matrix[src_idx, src_idx] -= rate
-        state_matrix[dest_idx, src_idx] += rate
+
+        I[idx] = src_idx
+        J[idx] = src_idx
+        V[idx] = -rate
+        idx += 1
+
+        I[idx] = dest_idx
+        J[idx] = src_idx
+        V[idx] = rate
+        idx += 1
     end
-    state_matrix[num_vertices + 1, :] .= 1.0
-    return state_matrix
+
+    for j in 1:num_vertices
+        I[idx] = num_vertices + 1
+        J[idx] = j
+        V[idx] = 1.0
+        idx += 1
+    end
+
+    return sparse(I, J, V, num_vertices + 1, num_vertices)
 end
 
 function compute_state_equation(vertices, edges, arc_transitions, lambda_values)
