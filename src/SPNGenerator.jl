@@ -221,16 +221,37 @@ end
 Identifies enabled transitions and calculates the resulting markings.
 """
 function get_enabled_transitions(pre_condition_matrix, change_matrix, current_marking_vector)
-    enabled_mask = all(current_marking_vector .>= pre_condition_matrix, dims=1)
-    enabled_transitions = findall(vec(enabled_mask))
+    # Optimize hot loop: use nested loops with early break instead of allocating vectorized operations
+    num_places, num_transitions = size(pre_condition_matrix)
+    enabled_transitions = Vector{Int}()
 
-    if isempty(enabled_transitions)
-        num_places = size(pre_condition_matrix, 1)
+    @inbounds for j in 1:num_transitions
+        enabled = true
+        for i in 1:num_places
+            if current_marking_vector[i] < pre_condition_matrix[i, j]
+                enabled = false
+                break
+            end
+        end
+        if enabled
+            push!(enabled_transitions, j)
+        end
+    end
+
+    num_enabled = length(enabled_transitions)
+    if num_enabled == 0
         return Matrix{Int64}(undef, 0, num_places), Vector{Int64}(undef, 0)
     end
 
-    new_markings = current_marking_vector .+ change_matrix[:, enabled_transitions]
-    return new_markings', enabled_transitions
+    new_markings_transposed = Matrix{Int64}(undef, num_enabled, num_places)
+    @inbounds for j in 1:num_enabled
+        trans_idx = enabled_transitions[j]
+        for i in 1:num_places
+            new_markings_transposed[j, i] = current_marking_vector[i] + change_matrix[i, trans_idx]
+        end
+    end
+
+    return new_markings_transposed, enabled_transitions
 end
 
 function _initialize_bfs(initial_marking)
