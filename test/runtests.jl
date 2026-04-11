@@ -11,6 +11,8 @@ using JSON3
     end
 
     @testset "Pruning" begin
+        using Random
+        Random.seed!(42)
         # This petri net has a place with 4 connections, so at least one edge should be pruned.
         pn = [1 1 1 1 0 0 0 1;
               1 0 0 0 1 0 0 0;
