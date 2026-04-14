@@ -10,3 +10,6 @@
 ## 2026-04-12 - Array Layout Matters
 **Learning:** In Julia, multidimensional arrays are stored in column-major order. When writing explicit nested loops to replace vectorized code, iterating with the column index (`j`) in the outer loop and the row index (`i`) in the inner loop avoids memory jumps (improving cache locality).
 **Action:** Always traverse multidimensional arrays column-by-column rather than row-by-row in hot loops.
+## 2024-04-14 - [Vectorized vs Loop Allocations in Julia `is_connected`]
+**Learning:** Using full vector operations like `any(sum(...) .== 0)` inside hot loops in Julia creates intermediate arrays that require heap allocation, severely impacting performance. The overhead from garbage collection and allocation often outweighs the benefits of vectorization for small matrices.
+**Action:** When performing boolean checks on matrices (e.g., checking if a node has any connections), write explicit `@inbounds` nested loops with early `break` or `return` conditions instead of fully vectorized evaluations. This short-circuits the check and completely eliminates temporary array allocations.
