@@ -281,13 +281,6 @@ function _process_marking(
         pre_matrix, change_matrix, current_marking
     )
 
-    # ⚡ Bolt Optimization:
-    # Previously, this checked `any(enabled_next_markings .> place_upper_limit)`.
-    # Vectorized operations like `.>` allocate a new boolean matrix and `any()` iterates over it,
-    # causing ~3 allocations per check in a hot BFS loop.
-    # By replacing it with an explicit `@inbounds` nested loop over columns (places)
-    # and rows (transitions) with early return, we eliminate memory allocations (0 bytes)
-    # and achieve a ~15x speedup for this check.
     exceeds_limit = false
     if !isempty(enabled_next_markings)
         num_enabled = size(enabled_next_markings, 1)
@@ -422,13 +415,7 @@ end
 
 
 # Contents of SPN submodule
-function _compute_state_equation_numba(num_vertices, edges, arc_transitions, lambda_values)
-    # ⚡ Bolt Optimization:
-    # Previously, this function repeatedly updated a sparse matrix initialized with spzeros in a loop.
-    # Modifying sparse matrices iteratively is extremely slow because it forces underlying arrays
-    # to be constantly reallocated and shifted.
-    # By collecting row indices (I), column indices (J), and values (V) into vectors
-    # and creating the matrix once with `sparse(I, J, V)`, we achieve an ~8x performance improvement.
+function _compute_state_equation_core(num_vertices, edges, arc_transitions, lambda_values)
     num_edges = length(edges)
     I = Vector{Int}(undef, 2 * num_edges + num_vertices)
     J = Vector{Int}(undef, 2 * num_edges + num_vertices)
@@ -464,20 +451,13 @@ end
 
 function compute_state_equation(vertices, edges, arc_transitions, lambda_values)
     num_vertices = length(vertices)
-    state_matrix = _compute_state_equation_numba(num_vertices, edges, arc_transitions, lambda_values)
+    state_matrix = _compute_state_equation_core(num_vertices, edges, arc_transitions, lambda_values)
     target_vector = zeros(Float64, num_vertices + 1)
     target_vector[end] = 1.0
     return state_matrix, target_vector
 end
 
 function compute_average_markings(vertices::Matrix{Int}, steady_state_probs::Vector{Float64})
-    # ⚡ Bolt Optimization:
-    # Previously, this function computed marking densities and averages using vectorized
-    # operations (`vertices .== token_val`) inside a loop over unique tokens. This created
-    # many intermediate arrays, allocating significant memory and hurting performance.
-    # By using a single pass with nested loops and a dictionary to map token values to
-    # indices, we avoid all intermediate allocations, improving performance by ~3x and
-    # reducing allocations by ~80% according to BenchmarkTools.
     num_states, num_places = size(vertices)
 
     unique_token_values = sort(unique(vertices))
@@ -559,12 +539,6 @@ function is_connected(petri_net_matrix)
     if num_transitions == 0
         return false
     end
-
-    # ⚡ Bolt Optimization:
-    # Previously, this function used vectorized operations like `any(sum(...) .== 0)`
-    # which generated many intermediate arrays (~23 allocations, ~25 KiB per call).
-    # By replacing this with explicit `@inbounds` nested loops and early returns,
-    # we eliminate all memory allocations (0 bytes) and achieve a ~4.5x speedup.
 
     # Check if any place has 0 connections
     @inbounds for i in 1:num_places
@@ -651,7 +625,7 @@ function get_spn_info(petri_net_matrix, vertices, edges, arc_transitions, transi
 end
 
 # Contents of DataTransformation submodule
-function _generate_candidate_matrices_numba(
+function _generate_candidate_matrices_core(
     base_petri_matrix,
     enable_delete_edge,
     enable_add_edge,
@@ -697,7 +671,7 @@ function _generate_candidate_matrices_numba(
 end
 
 function _generate_candidate_matrices(base_petri_matrix, config)
-    candidate_matrices = _generate_candidate_matrices_numba(
+    candidate_matrices = _generate_candidate_matrices_core(
         base_petri_matrix,
         get(config, "enable_delete_edge", false),
         get(config, "enable_add_edge", false),
