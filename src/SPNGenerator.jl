@@ -415,7 +415,7 @@ end
 
 
 # Contents of SPN submodule
-function _compute_state_equation_numba(num_vertices, edges, arc_transitions, lambda_values)
+function _compute_state_equation_core(num_vertices, edges, arc_transitions, lambda_values)
     num_edges = length(edges)
     I = Vector{Int}(undef, 2 * num_edges + num_vertices)
     J = Vector{Int}(undef, 2 * num_edges + num_vertices)
@@ -451,7 +451,7 @@ end
 
 function compute_state_equation(vertices, edges, arc_transitions, lambda_values)
     num_vertices = length(vertices)
-    state_matrix = _compute_state_equation_numba(num_vertices, edges, arc_transitions, lambda_values)
+    state_matrix = _compute_state_equation_core(num_vertices, edges, arc_transitions, lambda_values)
     target_vector = zeros(Float64, num_vertices + 1)
     target_vector[end] = 1.0
     return state_matrix, target_vector
@@ -625,7 +625,7 @@ function get_spn_info(petri_net_matrix, vertices, edges, arc_transitions, transi
 end
 
 # Contents of DataTransformation submodule
-function _generate_candidate_matrices_numba(
+function _generate_candidate_matrices_core(
     base_petri_matrix,
     enable_delete_edge,
     enable_add_edge,
@@ -671,7 +671,7 @@ function _generate_candidate_matrices_numba(
 end
 
 function _generate_candidate_matrices(base_petri_matrix, config)
-    candidate_matrices = _generate_candidate_matrices_numba(
+    candidate_matrices = _generate_candidate_matrices_core(
         base_petri_matrix,
         get(config, "enable_delete_edge", false),
         get(config, "enable_add_edge", false),
