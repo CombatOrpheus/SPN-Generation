@@ -13,3 +13,6 @@
 ## 2024-04-14 - [Vectorized vs Loop Allocations in Julia `is_connected`]
 **Learning:** Using full vector operations like `any(sum(...) .== 0)` inside hot loops in Julia creates intermediate arrays that require heap allocation, severely impacting performance. The overhead from garbage collection and allocation often outweighs the benefits of vectorization for small matrices.
 **Action:** When performing boolean checks on matrices (e.g., checking if a node has any connections), write explicit `@inbounds` nested loops with early `break` or `return` conditions instead of fully vectorized evaluations. This short-circuits the check and completely eliminates temporary array allocations.
+## 2024-04-15 - [Vectorized vs Loop Allocations in Julia BFS]
+**Learning:** Using full vector operations like `any(enabled_next_markings .> place_upper_limit)` inside a BFS hot loop (`_process_marking`) in Julia creates temporary arrays (like the boolean `.>`) that require heap allocation, severely impacting performance across thousands of iterations.
+**Action:** When performing boolean limit checks on matrices in hot loops, write explicit `@inbounds` nested loops with early `break` conditions instead of fully vectorized evaluations. This short-circuits the check and completely eliminates temporary array allocations.
