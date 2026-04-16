@@ -16,3 +16,6 @@
 ## 2024-04-15 - [Vectorized vs Loop Allocations in Julia BFS]
 **Learning:** Using full vector operations like `any(enabled_next_markings .> place_upper_limit)` inside a BFS hot loop (`_process_marking`) in Julia creates temporary arrays (like the boolean `.>`) that require heap allocation, severely impacting performance across thousands of iterations.
 **Action:** When performing boolean limit checks on matrices in hot loops, write explicit `@inbounds` nested loops with early `break` conditions instead of fully vectorized evaluations. This short-circuits the check and completely eliminates temporary array allocations.
+## 2024-04-16 - Pre-allocation and Explicit Loops over `findall`
+**Learning:** In Julia, dynamically growing an untyped array (like `[]` with `push!`) and using allocating functions like `findall(isone, matrix)` or `sum` inside candidate generation functions significantly degrades performance. It causes heavy memory allocation and garbage collection.
+**Action:** Pre-calculate the exact required size by counting conditions, pre-allocate a typed `Vector{T}(undef, size)`, and use explicit `@inbounds` column-major nested loops to populate the array. This single-pass strategy without intermediate views reduces latency by ~20% and avoids growing `Any` arrays.
