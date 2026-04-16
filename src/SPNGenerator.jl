@@ -24,22 +24,22 @@ export write_to_hdf5, write_to_jsonl, run_generation_from_config
 function generate_single_spn(config)
     max_attempts = 100
     for _ in 1:max_attempts
-        place_num = rand(config["minimum_number_of_places"]:config["maximum_number_of_places"])
-        trans_num = rand(config["minimum_number_of_transitions"]:config["maximum_number_of_transitions"])
+        place_num = rand(config["minimum_number_of_places"]::Int : config["maximum_number_of_places"]::Int)
+        trans_num = rand(config["minimum_number_of_transitions"]::Int : config["maximum_number_of_transitions"]::Int)
 
         petri_matrix = generate_random_petri_net(place_num, trans_num)
-        if get(config, "enable_pruning", false)
+        if get(config, "enable_pruning", false)::Bool
             petri_matrix = prune_petri_net(petri_matrix)
         end
-        if get(config, "enable_token_addition", false)
+        if get(config, "enable_token_addition", false)::Bool
             petri_matrix = add_tokens_randomly(petri_matrix)
         end
 
         results, success = filter_spn(
             petri_matrix,
-            place_upper_bound=config["place_upper_bound"],
-            marks_lower_limit=config["marks_lower_limit"],
-            marks_upper_limit=config["marks_upper_limit"],
+            place_upper_bound=config["place_upper_bound"]::Int,
+            marks_lower_limit=config["marks_lower_limit"]::Int,
+            marks_upper_limit=config["marks_upper_limit"]::Int,
         )
         if success
             return results
@@ -50,22 +50,22 @@ end
 
 function augment_single_spn(sample, config)
     if isnothing(sample) || !haskey(sample, "petri_net")
-        return []
+        return Dict{String, Any}[]
     end
 
-    petri_net = sample["petri_net"]
-    augmented_data = generate_lambda_variations(
+    petri_net = sample["petri_net"]::Matrix{Int32}
+    augmented_data::Vector{Dict{String, Any}} = generate_lambda_variations(
         sample,
-        config["lambda_variations_per_sample"],
+        convert(Int, config["lambda_variations_per_sample"]),
     )
 
     if isempty(augmented_data)
-        return []
+        return Dict{String, Any}[]
     end
 
-    max_transforms = get(config, "maximum_transformations_per_sample", length(augmented_data))
+    max_transforms = convert(Int, get(config, "maximum_transformations_per_sample", length(augmented_data)))
     if length(augmented_data) > max_transforms
-        return sample(augmented_data, max_transforms, replace=false)
+        return sample(augmented_data, convert(Int, max_transforms), replace=false)
     end
     return augmented_data
 end
@@ -243,7 +243,7 @@ function get_enabled_transitions(pre_condition_matrix, change_matrix, current_ma
         return Matrix{Int64}(undef, 0, num_places), Vector{Int64}(undef, 0)
     end
 
-    new_markings_transposed = Matrix{Int64}(undef, num_enabled, num_places)
+    new_markings_transposed = Matrix{Int}(undef, num_enabled, num_places)
     @inbounds for j in 1:num_enabled
         trans_idx = enabled_transitions[j]
         for i in 1:num_places
@@ -256,8 +256,8 @@ end
 
 function _initialize_bfs(initial_marking)
     marking_index_counter = 1 # Julia is 1-indexed
-    visited_markings_list = [initial_marking]
-    explored_markings_dict = Dict(initial_marking => marking_index_counter)
+    visited_markings_list = Vector{Vector{Int}}([initial_marking])
+    explored_markings_dict = Dict{Vector{Int}, Int}(initial_marking => marking_index_counter)
     processing_queue = Queue{Int}()
     push!(processing_queue, marking_index_counter)
     return marking_index_counter, visited_markings_list, explored_markings_dict, processing_queue
@@ -353,8 +353,8 @@ function generate_reachability_graph(incidence_matrix_with_initial; place_upper_
         processing_queue,
     ) = _initialize_bfs(initial_marking)
 
-    reachability_edges = []
-    edge_transition_indices = []
+    reachability_edges = Vector{Vector{Int}}()
+    edge_transition_indices = Vector{Int}()
     is_bounded = true
 
     while !isempty(processing_queue)
@@ -573,7 +573,7 @@ function is_connected(petri_net_matrix)
 end
 
 function _create_spn_result_dict(petri_net_matrix, vertices, edges, arc_transitions, firing_rates, steady_state_probs, marking_densities, average_markings)
-    return Dict(
+    return Dict{String, Any}(
         "petri_net" => petri_net_matrix,
         "arr_vlist" => hcat(vertices...)',
         "arr_edge" => isempty(edges) ? Matrix{Int}(undef, 0, 2) : reduce(vcat, permutedims.(edges)),
@@ -588,7 +588,7 @@ end
 
 function filter_spn(petri_net_matrix; place_upper_bound=10, marks_lower_limit=4, marks_upper_limit=500)
     if !is_connected(petri_net_matrix)
-        return Dict(), false
+        return Dict{String, Any}(), false
     end
 
     vertices, edges, arc_transitions, num_transitions, is_bounded = generate_reachability_graph(
@@ -598,13 +598,13 @@ function filter_spn(petri_net_matrix; place_upper_bound=10, marks_lower_limit=4,
     )
 
     if !is_bounded || isempty(vertices) || length(vertices) < marks_lower_limit
-        return Dict(), false
+        return Dict{String, Any}(), false
     end
 
     probs, density, markings, rates, success = generate_stochastic_net_task(vertices, edges, arc_transitions, num_transitions)
 
     if !success || sum(markings) > 1000 || sum(markings) < -1000
-        return Dict(), false
+        return Dict{String, Any}(), false
     end
 
     return _create_spn_result_dict(petri_net_matrix, vertices, edges, arc_transitions, rates, probs, density, markings), true
@@ -612,13 +612,13 @@ end
 
 function get_spn_info(petri_net_matrix, vertices, edges, arc_transitions, transition_rates)
     if !is_connected(petri_net_matrix) || isempty(vertices)
-        return Dict(), false
+        return Dict{String, Any}(), false
     end
 
     probs, density, markings, success = generate_stochastic_net_task_with_rates(vertices, edges, arc_transitions, transition_rates)
 
     if !success
-        return Dict(), false
+        return Dict{String, Any}(), false
     end
 
     return _create_spn_result_dict(petri_net_matrix, vertices, edges, arc_transitions, transition_rates, probs, density, markings), true
@@ -714,15 +714,15 @@ end
 function _generate_candidate_matrices(base_petri_matrix, config)
     candidate_matrices = _generate_candidate_matrices_core(
         base_petri_matrix,
-        get(config, "enable_delete_edge", false),
-        get(config, "enable_add_edge", false),
-        get(config, "enable_add_token", false),
-        get(config, "enable_delete_token", false),
+        convert(Bool, get(config, "enable_delete_edge", false)),
+        convert(Bool, get(config, "enable_add_edge", false)),
+        convert(Bool, get(config, "enable_add_token", false)),
+        convert(Bool, get(config, "enable_delete_token", false)),
     )
 
     num_places, num_cols = size(base_petri_matrix)
     num_transitions = (num_cols - 1) ÷ 2
-    if get(config, "enable_add_place", false) && num_transitions > 0
+    if convert(Bool, get(config, "enable_add_place", false)) && num_transitions > 0
         new_place_row = zeros(Int32, 1, num_cols)
         t_idx_to_connect = rand(1:(num_transitions * 2))
         new_place_row[1, t_idx_to_connect] = 1
@@ -734,30 +734,30 @@ function _generate_candidate_matrices(base_petri_matrix, config)
 end
 
 function _generate_rate_variations(base_variation, num_variations)
-    p_net = base_variation["petri_net"]
+    p_net = base_variation["petri_net"]::Matrix{Int32}
     num_trans = (size(p_net, 2) - 1) ÷ 2
     if num_trans == 0
-        return []
+        return Dict{String, Any}[]
     end
 
-    vlist_as_vecs = [v for v in eachrow(base_variation["arr_vlist"])]
+    vlist_as_vecs = [v for v in eachrow(base_variation["arr_vlist"]::AbstractMatrix{Int})]
 
-    rate_variations = []
+    rate_variations = Vector{Dict{String, Any}}()
     for _ in 1:num_variations
         new_rates = rand(1:10, num_trans)
         s_probs, m_dens, avg_marks, success = generate_stochastic_net_task_with_rates(
             vlist_as_vecs,
-            [e for e in eachrow(base_variation["arr_edge"])],
-            base_variation["arr_tranidx"],
+            [e for e in eachrow(base_variation["arr_edge"]::AbstractMatrix{Int})],
+            base_variation["arr_tranidx"]::Vector{Int},
             new_rates,
         )
 
         if success
-            push!(rate_variations, Dict(
+            push!(rate_variations, Dict{String, Any}(
                 "petri_net" => p_net,
                 "arr_vlist" => base_variation["arr_vlist"],
                 "arr_edge" => base_variation["arr_edge"],
-                "arr_tranidx" => base_variation["arr_tranidx"],
+                "arr_tranidx" => base_variation["arr_tranidx"]::Vector{Int},
                 "spn_labda" => new_rates,
                 "spn_steadypro" => s_probs,
                 "spn_markdens" => m_dens,
@@ -774,14 +774,14 @@ function generate_petri_net_variations(petri_matrix, config)
     base_petri_matrix = petri_matrix
     candidate_matrices = _generate_candidate_matrices(base_petri_matrix, config)
 
-    max_candidates = get(config, "max_candidates_per_structure", 50)
+    max_candidates = convert(Int, get(config, "max_candidates_per_structure", 50))
     if length(candidate_matrices) > max_candidates
         candidate_matrices = sample(candidate_matrices, max_candidates, replace=false)
     end
 
-    place_bound = get(config, "place_upper_bound", 10)
-    marks_lower = get(config, "marks_lower_limit", 4)
-    marks_upper = get(config, "marks_upper_limit", 500)
+    place_bound = convert(Int, get(config, "place_upper_bound", 10))
+    marks_lower = convert(Int, get(config, "marks_lower_limit", 4))
+    marks_upper = convert(Int, get(config, "marks_upper_limit", 500))
 
     results = [
         filter_spn(
@@ -794,11 +794,11 @@ function generate_petri_net_variations(petri_matrix, config)
 
     structural_variations = [res for (res, success) in results if success]
 
-    all_augmented_data = []
+    all_augmented_data = Vector{Dict{String, Any}}()
     append!(all_augmented_data, structural_variations)
 
-    if get(config, "enable_rate_variations", false)
-        num_rate_variations = get(config, "num_rate_variations_per_structure", 5)
+    if convert(Bool, get(config, "enable_rate_variations", false))
+        num_rate_variations = convert(Int, get(config, "num_rate_variations_per_structure", 5))
         for base_variation in structural_variations
             rate_variations = _generate_rate_variations(base_variation, num_rate_variations)
             append!(all_augmented_data, rate_variations)
@@ -809,18 +809,18 @@ function generate_petri_net_variations(petri_matrix, config)
 end
 
 function generate_lambda_variations(petri_dict, num_lambda_variations)
-    petri_net = petri_dict["petri_net"]
+    petri_net = petri_dict["petri_net"]::Matrix{Int32}
     num_transitions = (size(petri_net, 2) - 1) ÷ 2
-    vlist_as_vecs = [v for v in eachrow(petri_dict["arr_vlist"])]
+    vlist_as_vecs = [v for v in eachrow(petri_dict["arr_vlist"]::AbstractMatrix{Int})]
 
-    lambda_variations = []
+    lambda_variations = Vector{Dict{String, Any}}()
     for _ in 1:num_lambda_variations
         lambda_values = rand(1:10, num_transitions)
         results_dict, success = get_spn_info(
             petri_net,
             vlist_as_vecs,
-            [e for e in eachrow(petri_dict["arr_edge"])],
-            petri_dict["arr_tranidx"],
+            [e for e in eachrow(petri_dict["arr_edge"]::AbstractMatrix{Int})],
+            petri_dict["arr_tranidx"]::Vector{Int},
             lambda_values,
         )
         if success
@@ -885,13 +885,13 @@ Samples a specified number of JSON files from a directory.
 function sample_json_files_from_directory(num_samples::Int, directory_path::String)
     _, json_files = count_json_files(directory_path)
     if isempty(json_files)
-        return []
+        return Any[]
     end
 
     num_to_sample = min(num_samples, length(json_files))
     sampled_files = sample(json_files, num_to_sample, replace=false)
 
-    sampled_data = []
+    sampled_data = Vector{Any}()
     for file_name in sampled_files
         file_path = joinpath(directory_path, file_name)
         data = load_json_file(file_path)
@@ -944,15 +944,15 @@ function write_to_jsonl(file_handler, data)
 end
 
 function run_generation_from_config(config)
-    output_format = get(config, "output_format", "hdf5")
-    output_dir = joinpath(config["output_data_location"], "data_$(output_format)")
+    output_format = convert(String, get(config, "output_format", "hdf5"))
+    output_dir = joinpath(convert(String, config["output_data_location"]), "data_$(output_format)")
     create_directory(output_dir)
-    output_path = joinpath(output_dir, config["output_file"])
+    output_path = joinpath(output_dir, convert(String, config["output_file"]))
 
-    println("Generating $(config["number_of_samples_to_generate"]) initial SPN samples...")
-    initial_samples = Vector{Any}(undef, config["number_of_samples_to_generate"])
-    p = Progress(config["number_of_samples_to_generate"])
-    Threads.@threads for i in 1:config["number_of_samples_to_generate"]
+    println("Generating $(convert(Int, config["number_of_samples_to_generate"])) initial SPN samples...")
+    initial_samples = Vector{Union{Dict{String, Any}, Nothing}}(undef, convert(Int, config["number_of_samples_to_generate"]))
+    p = Progress(convert(Int, config["number_of_samples_to_generate"]))
+    Threads.@threads for i in 1:convert(Int, config["number_of_samples_to_generate"])
         initial_samples[i] = generate_single_spn(config)
         next!(p)
     end
@@ -960,10 +960,10 @@ function run_generation_from_config(config)
     valid_samples = filter(x -> !isnothing(x), initial_samples)
     println("Generated $(length(valid_samples)) valid initial samples.")
 
-    all_samples = []
-    if get(config, "enable_transformations", false)
+    all_samples = Vector{Dict{String, Any}}()
+    if convert(Bool, get(config, "enable_transformations", false))
         println("Augmenting samples...")
-        augmented_lists = Vector{Any}(undef, length(valid_samples))
+        augmented_lists = Vector{Vector{Dict{String, Any}}}(undef, length(valid_samples))
         p = Progress(length(valid_samples))
         Threads.@threads for i in 1:length(valid_samples)
             augmented_lists[i] = augment_single_spn(valid_samples[i], config)
