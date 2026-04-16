@@ -632,38 +632,79 @@ function _generate_candidate_matrices_core(
     enable_add_token,
     enable_delete_token,
 )
-    candidate_matrices = []
     num_places, num_cols = size(base_petri_matrix)
 
+    # Optimization: Calculate exact number of matrices to pre-allocate,
+    # avoiding dynamically growing `Any` arrays with `push!`.
+    num_delete_edge = enable_delete_edge ? count(x -> x == 1, view(base_petri_matrix, :, 1:num_cols-1)) : 0
+    num_add_edge = enable_add_edge ? count(x -> x == 0, view(base_petri_matrix, :, 1:num_cols-1)) : 0
+    num_add_token = enable_add_token ? num_places : 0
+
+    token_sum = 0
+    num_delete_token = 0
+    if enable_delete_token
+        @inbounds for i in 1:num_places
+            token_sum += base_petri_matrix[i, end]
+        end
+        if token_sum > 1
+            @inbounds for i in 1:num_places
+                if base_petri_matrix[i, end] >= 1
+                    num_delete_token += 1
+                end
+            end
+        end
+    end
+
+    total_matrices = num_delete_edge + num_add_edge + num_add_token + num_delete_token
+
+    # Typed array avoids Any allocations
+    candidate_matrices = Vector{typeof(base_petri_matrix)}(undef, total_matrices)
+    idx = 1
+
+    # Optimization: Loop column-major without allocating views or using findall
     if enable_delete_edge
-        for idx in findall(isone, base_petri_matrix[:, 1:end-1])
-            modified_matrix = copy(base_petri_matrix)
-            modified_matrix[idx] = 0
-            push!(candidate_matrices, modified_matrix)
+        @inbounds for j in 1:num_cols-1
+            for i in 1:num_places
+                if base_petri_matrix[i, j] == 1
+                    modified_matrix = copy(base_petri_matrix)
+                    modified_matrix[i, j] = 0
+                    candidate_matrices[idx] = modified_matrix
+                    idx += 1
+                end
+            end
         end
     end
 
     if enable_add_edge
-        for idx in findall(iszero, base_petri_matrix[:, 1:end-1])
-            modified_matrix = copy(base_petri_matrix)
-            modified_matrix[idx] = 1
-            push!(candidate_matrices, modified_matrix)
+        @inbounds for j in 1:num_cols-1
+            for i in 1:num_places
+                if base_petri_matrix[i, j] == 0
+                    modified_matrix = copy(base_petri_matrix)
+                    modified_matrix[i, j] = 1
+                    candidate_matrices[idx] = modified_matrix
+                    idx += 1
+                end
+            end
         end
     end
 
     if enable_add_token
-        for r in 1:num_places
+        @inbounds for i in 1:num_places
             modified_matrix = copy(base_petri_matrix)
-            modified_matrix[r, end] += 1
-            push!(candidate_matrices, modified_matrix)
+            modified_matrix[i, end] += 1
+            candidate_matrices[idx] = modified_matrix
+            idx += 1
         end
     end
 
-    if enable_delete_token && sum(base_petri_matrix[:, end]) > 1
-        for r in findall(x -> x >= 1, base_petri_matrix[:, end])
-            modified_matrix = copy(base_petri_matrix)
-            modified_matrix[r, end] -= 1
-            push!(candidate_matrices, modified_matrix)
+    if enable_delete_token && token_sum > 1
+        @inbounds for i in 1:num_places
+            if base_petri_matrix[i, end] >= 1
+                modified_matrix = copy(base_petri_matrix)
+                modified_matrix[i, end] -= 1
+                candidate_matrices[idx] = modified_matrix
+                idx += 1
+            end
         end
     end
 
