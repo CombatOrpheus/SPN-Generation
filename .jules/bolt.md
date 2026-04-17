@@ -19,3 +19,6 @@
 ## 2024-04-16 - Pre-allocation and Explicit Loops over `findall`
 **Learning:** In Julia, dynamically growing an untyped array (like `[]` with `push!`) and using allocating functions like `findall(isone, matrix)` or `sum` inside candidate generation functions significantly degrades performance. It causes heavy memory allocation and garbage collection.
 **Action:** Pre-calculate the exact required size by counting conditions, pre-allocate a typed `Vector{T}(undef, size)`, and use explicit `@inbounds` column-major nested loops to populate the array. This single-pass strategy without intermediate views reduces latency by ~20% and avoids growing `Any` arrays.
+## 2024-04-18 - [Eliminating filter allocations in hot graph building loops]
+**Learning:** In Julia, dynamically filtering arrays like `filter(x -> x <= num_places, sub_graph)` inside graph building hot loops allocates many intermediate arrays, severely degrading performance.
+**Action:** Replace single `sub_graph` collections that need filtering with explicit, separated typed collections (e.g., `sub_places` and `sub_transitions`) that are pushed to dynamically, effectively eliminating redundant view/allocation creation during iteration.

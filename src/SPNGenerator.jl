@@ -91,17 +91,19 @@ function _initialize_petri_net(num_places::Int, num_transitions::Int)
     end
 
     shuffle!(remaining_nodes)
-    sub_graph = [first_place, first_transition]
-    return petri_matrix, remaining_nodes, sub_graph
+    # Optimize: Maintain explicit typed collections to avoid filter! inside loops
+    sub_places = Int[first_place]
+    sub_transitions = Int[first_transition]
+    return petri_matrix, remaining_nodes, sub_places, sub_transitions
 end
 
 """
 Connects the remaining nodes to the sub-graph.
 """
-function _connect_remaining_nodes(petri_matrix, remaining_nodes, sub_graph, num_places, num_transitions)
-    for node in shuffle(remaining_nodes)
-        sub_places = filter(x -> x <= num_places, sub_graph)
-        sub_transitions = filter(x -> x > num_places, sub_graph)
+function _connect_remaining_nodes(petri_matrix, remaining_nodes, sub_places, sub_transitions, num_places, num_transitions)
+    # Optimize: remaining_nodes is already shuffled in _initialize_petri_net, avoid shuffle allocation here
+    for node in remaining_nodes
+        # Optimize: eliminate intermediate sub_places/sub_transitions filter array allocations
 
         place, transition = if node <= num_places
             (node, rand(sub_transitions))
@@ -115,7 +117,12 @@ function _connect_remaining_nodes(petri_matrix, remaining_nodes, sub_graph, num_
             petri_matrix[place, transition - num_places + num_transitions] = 1
         end
 
-        push!(sub_graph, node)
+        # Dynamically push to typed collection instead of single sub_graph
+        if node <= num_places
+            push!(sub_places, node)
+        else
+            push!(sub_transitions, node)
+        end
     end
     return petri_matrix
 end
@@ -124,8 +131,8 @@ end
 Generates a random Petri net matrix.
 """
 function generate_random_petri_net(num_places::Int, num_transitions::Int)
-    petri_matrix, remaining_nodes, sub_graph = _initialize_petri_net(num_places, num_transitions)
-    petri_matrix = _connect_remaining_nodes(petri_matrix, remaining_nodes, sub_graph, num_places, num_transitions)
+    petri_matrix, remaining_nodes, sub_places, sub_transitions = _initialize_petri_net(num_places, num_transitions)
+    petri_matrix = _connect_remaining_nodes(petri_matrix, remaining_nodes, sub_places, sub_transitions, num_places, num_transitions)
 
     # Add an initial marking
     random_place = rand(1:num_places)
