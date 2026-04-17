@@ -1,0 +1,11 @@
+dataset_size = 10
+maximum_transformations_per_sample = 2
+minimum_number_of_places = 5
+maximum_number_of_places = 15
+minimum_number_of_transitions = 5
+maximum_number_of_transitions = 15
+place_upper_bound = 10
+marks_lower_limit = 4
+marks_upper_limit = 50
+lambda_variations_per_sample = 2
+output_data_location = "benchmarks_output"
