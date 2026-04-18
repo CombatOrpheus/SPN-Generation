@@ -507,12 +507,37 @@ function solve_for_steady_state(state_matrix, target_vector)
     return nothing
 end
 
+function _vertices_to_matrix(vertices::AbstractVector{<:AbstractVector{Int}})
+    num_states = length(vertices)
+    num_places = length(vertices[1])
+    mat = Matrix{Int}(undef, num_states, num_places)
+    @inbounds for j in 1:num_places
+        for i in 1:num_states
+            mat[i, j] = vertices[i][j]
+        end
+    end
+    return mat
+end
+
+function _edges_to_matrix(edges::AbstractVector{<:AbstractVector{Int}})
+    if isempty(edges)
+        return Matrix{Int}(undef, 0, 2)
+    end
+    n = length(edges)
+    mat = Matrix{Int}(undef, n, 2)
+    @inbounds for i in 1:n
+        mat[i, 1] = edges[i][1]
+        mat[i, 2] = edges[i][2]
+    end
+    return mat
+end
+
 function _run_spn_task(vertices, edges, arc_transitions, transition_rates)
     if isempty(vertices)
         return nothing, nothing, nothing, false
     end
 
-    vertices_np = Matrix(hcat(vertices...)')
+    vertices_np = _vertices_to_matrix(vertices)
     state_matrix, target_vector = compute_state_equation(vertices, edges, arc_transitions, transition_rates)
     steady_state_probs = solve_for_steady_state(state_matrix, target_vector)
 
@@ -582,8 +607,8 @@ end
 function _create_spn_result_dict(petri_net_matrix, vertices, edges, arc_transitions, firing_rates, steady_state_probs, marking_densities, average_markings)
     return Dict{String, Any}(
         "petri_net" => petri_net_matrix,
-        "arr_vlist" => hcat(vertices...)',
-        "arr_edge" => isempty(edges) ? Matrix{Int}(undef, 0, 2) : reduce(vcat, permutedims.(edges)),
+        "arr_vlist" => _vertices_to_matrix(vertices),
+        "arr_edge" => _edges_to_matrix(edges),
         "arr_tranidx" => isempty(arc_transitions) ? Vector{Int}() : arc_transitions,
         "spn_labda" => firing_rates,
         "spn_steadypro" => steady_state_probs,

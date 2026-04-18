@@ -22,3 +22,6 @@
 ## 2024-04-18 - [Eliminating filter allocations in hot graph building loops]
 **Learning:** In Julia, dynamically filtering arrays like `filter(x -> x <= num_places, sub_graph)` inside graph building hot loops allocates many intermediate arrays, severely degrading performance.
 **Action:** Replace single `sub_graph` collections that need filtering with explicit, separated typed collections (e.g., `sub_places` and `sub_transitions`) that are pushed to dynamically, effectively eliminating redundant view/allocation creation during iteration.
+## 2024-04-18 - Replacing `hcat` and `reduce(vcat)` with explicit loops for matrix building
+**Learning:** In Julia, operations like `hcat(arrays...)` and `reduce(vcat, permutedims.(arrays))` on lists of small arrays (like vectors of state or edges) create many intermediate allocations and perform poorly. This creates a large performance bottleneck when generating SPNs.
+**Action:** Pre-allocate the resulting matrix using `Matrix{T}(undef, rows, cols)` and populate it using explicit `@inbounds` nested loops. Always use abstract types like `AbstractVector{<:AbstractVector{T}}` in the function signatures instead of concrete `Vector{Vector{T}}` to gracefully handle `SubArray`s or views, avoiding `MethodError`s.
