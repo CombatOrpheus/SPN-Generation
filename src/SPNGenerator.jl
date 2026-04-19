@@ -35,6 +35,11 @@ function generate_single_spn(config)
             petri_matrix = add_tokens_randomly(petri_matrix)
         end
 
+        # Convert to sparse if it's large enough
+        if place_num >= 500
+            petri_matrix = sparse(petri_matrix)
+        end
+
         results, success = filter_spn(
             petri_matrix,
             place_upper_bound=config["place_upper_bound"]::Int,
@@ -48,14 +53,10 @@ function generate_single_spn(config)
     return nothing
 end
 
-function augment_single_spn(sample, config)
-    if isnothing(sample) || !haskey(sample, "petri_net")
-        return Dict{String, Any}[]
-    end
-
-    petri_net = sample["petri_net"]::Matrix{Int32}
+function _augment_single_spn_impl(sample, petri_net::AbstractMatrix{Int32}, config)
     augmented_data::Vector{Dict{String, Any}} = generate_lambda_variations(
         sample,
+        petri_net,
         convert(Int, config["lambda_variations_per_sample"]),
     )
 
@@ -68,6 +69,15 @@ function augment_single_spn(sample, config)
         return sample(augmented_data, convert(Int, max_transforms), replace=false)
     end
     return augmented_data
+end
+
+function augment_single_spn(sample, config)
+    if isnothing(sample) || !haskey(sample, "petri_net")
+        return Dict{String, Any}[]
+    end
+
+    petri_net = sample["petri_net"]::AbstractMatrix{Int32}
+    return _augment_single_spn_impl(sample, petri_net, config)
 end
 
 # Contents of DataGenerate.jl
@@ -227,11 +237,11 @@ end
 """
 Identifies enabled transitions and calculates the resulting markings.
 """
-function get_enabled_transitions(pre_condition_matrix, change_matrix, current_marking_vector)
+function get_enabled_transitions!(pre_condition_matrix, change_matrix, current_marking_vector, enabled_transitions_buffer, new_markings_buffer)
     # Optimize hot loop: use nested loops with early break instead of allocating vectorized operations
     num_places, num_transitions = size(pre_condition_matrix)
-    enabled_transitions = Vector{Int}()
 
+    num_enabled = 0
     @inbounds for j in 1:num_transitions
         enabled = true
         for i in 1:num_places
@@ -241,24 +251,23 @@ function get_enabled_transitions(pre_condition_matrix, change_matrix, current_ma
             end
         end
         if enabled
-            push!(enabled_transitions, j)
+            num_enabled += 1
+            enabled_transitions_buffer[num_enabled] = j
         end
     end
 
-    num_enabled = length(enabled_transitions)
     if num_enabled == 0
-        return Matrix{Int64}(undef, 0, num_places), Vector{Int64}(undef, 0)
+        return view(new_markings_buffer, 1:0, 1:num_places), view(enabled_transitions_buffer, 1:0)
     end
 
-    new_markings_transposed = Matrix{Int}(undef, num_enabled, num_places)
     @inbounds for j in 1:num_enabled
-        trans_idx = enabled_transitions[j]
+        trans_idx = enabled_transitions_buffer[j]
         for i in 1:num_places
-            new_markings_transposed[j, i] = current_marking_vector[i] + change_matrix[i, trans_idx]
+            new_markings_buffer[j, i] = current_marking_vector[i] + change_matrix[i, trans_idx]
         end
     end
 
-    return new_markings_transposed, enabled_transitions
+    return view(new_markings_buffer, 1:num_enabled, :), view(enabled_transitions_buffer, 1:num_enabled)
 end
 
 function _initialize_bfs(initial_marking)
@@ -277,6 +286,8 @@ function _process_marking(
     change_matrix,
     place_upper_limit,
     max_markings_to_explore,
+    enabled_transitions_buffer,
+    new_markings_buffer
 )
     current_marking = visited_markings_list[current_marking_index]
 
@@ -284,8 +295,8 @@ function _process_marking(
         return nothing, nothing, true
     end
 
-    enabled_next_markings, enabled_transition_indices = get_enabled_transitions(
-        pre_matrix, change_matrix, current_marking
+    enabled_next_markings, enabled_transition_indices = get_enabled_transitions!(
+        pre_matrix, change_matrix, current_marking, enabled_transitions_buffer, new_markings_buffer
     )
 
     exceeds_limit = false
@@ -364,6 +375,10 @@ function generate_reachability_graph(incidence_matrix_with_initial; place_upper_
     edge_transition_indices = Vector{Int}()
     is_bounded = true
 
+    num_places = size(incidence_matrix, 1)
+    enabled_transitions_buffer = Vector{Int}(undef, num_transitions)
+    new_markings_buffer = Matrix{Int}(undef, num_transitions, num_places)
+
     while !isempty(processing_queue)
         current_marking_index = popfirst!(processing_queue)
 
@@ -374,6 +389,8 @@ function generate_reachability_graph(incidence_matrix_with_initial; place_upper_
             change_matrix,
             place_upper_limit,
             max_markings_to_explore,
+            enabled_transitions_buffer,
+            new_markings_buffer
         )
 
         if stop_exploration
@@ -765,8 +782,7 @@ function _generate_candidate_matrices(base_petri_matrix, config)
     return candidate_matrices
 end
 
-function _generate_rate_variations(base_variation, num_variations)
-    p_net = base_variation["petri_net"]::Matrix{Int32}
+function _generate_rate_variations_impl(base_variation, p_net::AbstractMatrix{Int32}, num_variations)
     num_trans = (size(p_net, 2) - 1) ÷ 2
     if num_trans == 0
         return Dict{String, Any}[]
@@ -802,19 +818,7 @@ function _generate_rate_variations(base_variation, num_variations)
     return rate_variations
 end
 
-function generate_petri_net_variations(petri_matrix, config)
-    base_petri_matrix = petri_matrix
-    candidate_matrices = _generate_candidate_matrices(base_petri_matrix, config)
-
-    max_candidates = convert(Int, get(config, "max_candidates_per_structure", 50))
-    if length(candidate_matrices) > max_candidates
-        candidate_matrices = sample(candidate_matrices, max_candidates, replace=false)
-    end
-
-    place_bound = convert(Int, get(config, "place_upper_bound", 10))
-    marks_lower = convert(Int, get(config, "marks_lower_limit", 4))
-    marks_upper = convert(Int, get(config, "marks_upper_limit", 500))
-
+function _generate_petri_net_variations_impl(candidate_matrices, place_bound, marks_lower, marks_upper, config)
     results = [
         filter_spn(
             matrix,
@@ -832,7 +836,8 @@ function generate_petri_net_variations(petri_matrix, config)
     if convert(Bool, get(config, "enable_rate_variations", false))
         num_rate_variations = convert(Int, get(config, "num_rate_variations_per_structure", 5))
         for base_variation in structural_variations
-            rate_variations = _generate_rate_variations(base_variation, num_rate_variations)
+            p_net = base_variation["petri_net"]::AbstractMatrix{Int32}
+            rate_variations = _generate_rate_variations_impl(base_variation, p_net, num_rate_variations)
             append!(all_augmented_data, rate_variations)
         end
     end
@@ -840,10 +845,26 @@ function generate_petri_net_variations(petri_matrix, config)
     return all_augmented_data
 end
 
-function generate_lambda_variations(petri_dict, num_lambda_variations)
-    petri_net = petri_dict["petri_net"]::Matrix{Int32}
+function generate_petri_net_variations(petri_matrix, config)
+    base_petri_matrix = petri_matrix
+    candidate_matrices = _generate_candidate_matrices(base_petri_matrix, config)
+
+    max_candidates = convert(Int, get(config, "max_candidates_per_structure", 50))
+    if length(candidate_matrices) > max_candidates
+        candidate_matrices = sample(candidate_matrices, max_candidates, replace=false)
+    end
+
+    place_bound = convert(Int, get(config, "place_upper_bound", 10))
+    marks_lower = convert(Int, get(config, "marks_lower_limit", 4))
+    marks_upper = convert(Int, get(config, "marks_upper_limit", 500))
+
+    return _generate_petri_net_variations_impl(candidate_matrices, place_bound, marks_lower, marks_upper, config)
+end
+
+function _generate_lambda_variations_impl(petri_dict, petri_net::AbstractMatrix{Int32}, vlist::AbstractMatrix{Int}, edge_list::AbstractMatrix{Int}, tranidx::Vector{Int}, num_lambda_variations)
     num_transitions = (size(petri_net, 2) - 1) ÷ 2
-    vlist_as_vecs = [v for v in eachrow(petri_dict["arr_vlist"]::AbstractMatrix{Int})]
+    vlist_as_vecs = [v for v in eachrow(vlist)]
+    edge_as_vecs = [e for e in eachrow(edge_list)]
 
     lambda_variations = Vector{Dict{String, Any}}()
     for _ in 1:num_lambda_variations
@@ -851,8 +872,8 @@ function generate_lambda_variations(petri_dict, num_lambda_variations)
         results_dict, success = get_spn_info(
             petri_net,
             vlist_as_vecs,
-            [e for e in eachrow(petri_dict["arr_edge"]::AbstractMatrix{Int})],
-            petri_dict["arr_tranidx"]::Vector{Int},
+            edge_as_vecs,
+            tranidx,
             lambda_values,
         )
         if success
@@ -861,6 +882,13 @@ function generate_lambda_variations(petri_dict, num_lambda_variations)
     end
 
     return lambda_variations
+end
+
+function generate_lambda_variations(petri_dict, petri_net::AbstractMatrix{Int32}, num_lambda_variations)
+    vlist = petri_dict["arr_vlist"]::AbstractMatrix{Int}
+    edge_list = petri_dict["arr_edge"]::AbstractMatrix{Int}
+    tranidx = petri_dict["arr_tranidx"]::Vector{Int}
+    return _generate_lambda_variations_impl(petri_dict, petri_net, vlist, edge_list, tranidx, num_lambda_variations)
 end
 
 # Contents of Utils.jl
