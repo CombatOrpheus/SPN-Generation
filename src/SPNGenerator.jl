@@ -146,24 +146,58 @@ Deletes excess edges from the Petri net.
 """
 function delete_excess_edges(petri_matrix, num_transitions)
     num_places = size(petri_matrix, 1)
+    num_cols = 2 * num_transitions
+
+    # Pre-allocate array for indices
+    edge_indices = Vector{Int}(undef, max(num_places, num_cols))
 
     # Places
-    place_sums = sum(petri_matrix[:, 1:end-1], dims=2)
-    for i in findall(s -> s >= 3, vec(place_sums))
-        edge_indices = findall(isone, petri_matrix[i, 1:end-1])
-        if length(edge_indices) > 2
-            indices_to_remove = shuffle(edge_indices)[1:(length(edge_indices) - 2)]
-            petri_matrix[i, indices_to_remove] .= 0
+    @inbounds for i in 1:num_places
+        edge_count = 0
+        for j in 1:num_cols
+            if petri_matrix[i, j] == 1
+                edge_count += 1
+                edge_indices[edge_count] = j
+            end
+        end
+
+        if edge_count >= 3
+            # We need to remove edge_count - 2 edges randomly
+            num_to_remove = edge_count - 2
+            # Shuffle only the part we care about to pick `num_to_remove` items
+            for k in 1:num_to_remove
+                idx_to_swap = rand(k:edge_count)
+                # Swap
+                tmp = edge_indices[k]
+                edge_indices[k] = edge_indices[idx_to_swap]
+                edge_indices[idx_to_swap] = tmp
+
+                # Remove edge
+                petri_matrix[i, edge_indices[k]] = 0
+            end
         end
     end
 
     # Transitions
-    transition_sums = sum(petri_matrix, dims=1)
-    for i in findall(s -> s >= 3, transition_sums[1, 1:(2*num_transitions)])
-        edge_indices = findall(isone, petri_matrix[:, i])
-        if length(edge_indices) > 2
-            indices_to_remove = shuffle(edge_indices)[1:(length(edge_indices) - 2)]
-            petri_matrix[indices_to_remove, i] .= 0
+    @inbounds for j in 1:num_cols
+        edge_count = 0
+        for i in 1:num_places
+            if petri_matrix[i, j] == 1
+                edge_count += 1
+                edge_indices[edge_count] = i
+            end
+        end
+
+        if edge_count >= 3
+            num_to_remove = edge_count - 2
+            for k in 1:num_to_remove
+                idx_to_swap = rand(k:edge_count)
+                tmp = edge_indices[k]
+                edge_indices[k] = edge_indices[idx_to_swap]
+                edge_indices[idx_to_swap] = tmp
+
+                petri_matrix[edge_indices[k], j] = 0
+            end
         end
     end
 
@@ -176,28 +210,52 @@ Adds connections to ensure the Petri net is valid.
 function add_missing_connections(petri_matrix, num_transitions)
     num_places = size(petri_matrix, 1)
 
-    # Ensure each transition has at least one connection
-    zero_sum_cols = findall(iszero, vec(sum(view(petri_matrix, :, 1:(2*num_transitions)), dims=1)))
-    if !isempty(zero_sum_cols)
-        random_rows = rand(1:num_places, length(zero_sum_cols))
-        petri_matrix[random_rows, zero_sum_cols] .= 1
+    # 1. Ensure each transition has at least one connection
+    # Transitions are in columns 1 to 2*num_transitions
+    @inbounds for j in 1:(2*num_transitions)
+        has_connection = false
+        for i in 1:num_places
+            if petri_matrix[i, j] != 0
+                has_connection = true
+                break
+            end
+        end
+        if !has_connection
+            random_row = rand(1:num_places)
+            petri_matrix[random_row, j] = 1
+        end
     end
 
-    pre_matrix = view(petri_matrix, :, 1:num_transitions)
-    post_matrix = view(petri_matrix, :, (num_transitions + 1):(2*num_transitions))
-
-    # Ensure each place has at least one incoming edge
-    rows_with_zero_pre_sum = findall(iszero, vec(sum(pre_matrix, dims=2)))
-    if !isempty(rows_with_zero_pre_sum)
-        random_cols_pre = rand(1:num_transitions, length(rows_with_zero_pre_sum))
-        petri_matrix[rows_with_zero_pre_sum, random_cols_pre] .= 1
+    # 2. Ensure each place has at least one incoming edge
+    # Incoming edges are in columns 1 to num_transitions
+    @inbounds for i in 1:num_places
+        has_incoming = false
+        for j in 1:num_transitions
+            if petri_matrix[i, j] != 0
+                has_incoming = true
+                break
+            end
+        end
+        if !has_incoming
+            random_col = rand(1:num_transitions)
+            petri_matrix[i, random_col] = 1
+        end
     end
 
-    # Ensure each place has at least one outgoing edge
-    rows_with_zero_post_sum = findall(iszero, vec(sum(post_matrix, dims=2)))
-    if !isempty(rows_with_zero_post_sum)
-        random_cols_post = rand(1:num_transitions, length(rows_with_zero_post_sum))
-        petri_matrix[rows_with_zero_post_sum, random_cols_post .+ num_transitions] .= 1
+    # 3. Ensure each place has at least one outgoing edge
+    # Outgoing edges are in columns (num_transitions + 1) to 2*num_transitions
+    @inbounds for i in 1:num_places
+        has_outgoing = false
+        for j in (num_transitions + 1):(2*num_transitions)
+            if petri_matrix[i, j] != 0
+                has_outgoing = true
+                break
+            end
+        end
+        if !has_outgoing
+            random_col = rand(1:num_transitions) + num_transitions
+            petri_matrix[i, random_col] = 1
+        end
     end
 
     return petri_matrix

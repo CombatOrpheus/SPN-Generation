@@ -25,3 +25,6 @@
 ## 2024-04-18 - Replacing `hcat` and `reduce(vcat)` with explicit loops for matrix building
 **Learning:** In Julia, operations like `hcat(arrays...)` and `reduce(vcat, permutedims.(arrays))` on lists of small arrays (like vectors of state or edges) create many intermediate allocations and perform poorly. This creates a large performance bottleneck when generating SPNs.
 **Action:** Pre-allocate the resulting matrix using `Matrix{T}(undef, rows, cols)` and populate it using explicit `@inbounds` nested loops. Always use abstract types like `AbstractVector{<:AbstractVector{T}}` in the function signatures instead of concrete `Vector{Vector{T}}` to gracefully handle `SubArray`s or views, avoiding `MethodError`s.
+## 2024-04-19 - Replace `findall` and array subsetting with pre-allocated explicit loops
+**Learning:** In Julia's hot paths (especially matrix parsing/generating), vectorized operations like `sum(matrix, dims=...)`, `findall`, and `shuffle(array)[1:N]` allocate heavy intermediate arrays.
+**Action:** Replace reductions and subsetting with pre-allocated arrays (`Vector{Int}(undef, N)`) populated using explicit, nested `@inbounds` loops. For partial shuffling, manual element swapping is significantly faster and uses less memory.
