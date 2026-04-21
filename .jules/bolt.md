@@ -28,3 +28,7 @@
 ## 2024-04-19 - Replace `findall` and array subsetting with pre-allocated explicit loops
 **Learning:** In Julia's hot paths (especially matrix parsing/generating), vectorized operations like `sum(matrix, dims=...)`, `findall`, and `shuffle(array)[1:N]` allocate heavy intermediate arrays.
 **Action:** Replace reductions and subsetting with pre-allocated arrays (`Vector{Int}(undef, N)`) populated using explicit, nested `@inbounds` loops. For partial shuffling, manual element swapping is significantly faster and uses less memory.
+
+## 2024-04-21 - [Array-Based Lookup Replaces Dictionary in Hot Loops]
+**Learning:** In Julia, using a `Dict` inside a hot nested loop for mapping integers to indices introduces significant hashing overhead. For densely packed integer tokens (like SPN markings), a pre-allocated vector provides $O(1)$ lookups and is considerably faster.
+**Action:** When mapping contiguous or dense integer keys to indices in performance-critical sections, dynamically compute the min and max to size an array, and use offset indexing (`array[val + offset]`) instead of `Dict{Int, Int}`.

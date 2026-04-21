@@ -47,9 +47,16 @@ function compute_average_markings(vertices::Matrix{Int}, steady_state_probs::Vec
     unique_token_values = sort(unique(vertices))
     num_unique = length(unique_token_values)
 
-    token_to_idx = Dict{Int, Int}()
+    # Optimization: Use an O(1) array-based lookup instead of a dictionary to eliminate
+    # hashing overhead inside the hot loop. Token values are integer-based and usually dense.
+    min_val = isempty(unique_token_values) ? 0 : unique_token_values[1]
+    max_val = isempty(unique_token_values) ? 0 : unique_token_values[end]
+
+    val_range = max_val - min_val + 1
+    token_to_idx = zeros(Int, val_range)
+    offset = 1 - min_val
     for (idx, val) in enumerate(unique_token_values)
-        token_to_idx[val] = idx
+        token_to_idx[val + offset] = idx
     end
 
     marking_density_matrix = zeros(Float64, num_places, num_unique)
@@ -59,7 +66,7 @@ function compute_average_markings(vertices::Matrix{Int}, steady_state_probs::Vec
         for i in 1:num_states
             prob = steady_state_probs[i]
             val = vertices[i, j]
-            idx = token_to_idx[val]
+            idx = token_to_idx[val + offset]
             marking_density_matrix[j, idx] += prob
             avg_tokens_per_place[j] += val * prob
         end
