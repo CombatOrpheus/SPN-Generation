@@ -32,3 +32,6 @@
 ## 2024-04-21 - [Array-Based Lookup Replaces Dictionary in Hot Loops]
 **Learning:** In Julia, using a `Dict` inside a hot nested loop for mapping integers to indices introduces significant hashing overhead. For densely packed integer tokens (like SPN markings), a pre-allocated vector provides $O(1)$ lookups and is considerably faster.
 **Action:** When mapping contiguous or dense integer keys to indices in performance-critical sections, dynamically compute the min and max to size an array, and use offset indexing (`array[val + offset]`) instead of `Dict{Int, Int}`.
+## 2024-04-23 - [Array splatting to vcat in sample aggregation]
+**Learning:** Using `vcat(array_of_arrays...)` splats the elements of the list into the `vcat` arguments list. In Julia, this allocates a massive tuple on the heap during runtime which destroys performance and increases GC pressure, especially when the list contains thousands of elements as seen during SPN batch generations.
+**Action:** Always replace `vcat(lists...)` with `reduce(vcat, lists)` or pre-allocate the final array and use `append!`. `reduce(vcat, lists)` eliminates the splatting issue completely without changing the logic.

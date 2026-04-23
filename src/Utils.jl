@@ -136,7 +136,9 @@ function run_generation_from_config(config)
             augmented_lists[i] = augment_single_spn(valid_samples[i], config)
             next!(p)
         end
-        all_samples = vcat(augmented_lists...)
+        # Avoid splatting large arrays into vcat to prevent significant
+        # compilation/runtime overhead and tuple allocation.
+        all_samples = reduce(vcat, augmented_lists)
     else
         all_samples = valid_samples
     end
