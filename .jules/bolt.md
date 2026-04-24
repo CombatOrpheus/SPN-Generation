@@ -35,3 +35,6 @@
 ## 2024-04-23 - [Array splatting to vcat in sample aggregation]
 **Learning:** Using `vcat(array_of_arrays...)` splats the elements of the list into the `vcat` arguments list. In Julia, this allocates a massive tuple on the heap during runtime which destroys performance and increases GC pressure, especially when the list contains thousands of elements as seen during SPN batch generations.
 **Action:** Always replace `vcat(lists...)` with `reduce(vcat, lists)` or pre-allocate the final array and use `append!`. `reduce(vcat, lists)` eliminates the splatting issue completely without changing the logic.
+## 2024-04-24 - [Avoid `sort(unique())` allocations for dense token values]
+**Learning:** Using `sort(unique(vertices))` inside hot loops (e.g. state space evaluation) allocates intermediate dictionaries/sets and arrays for hashing and sorting, significantly degrading performance.
+**Action:** Replace `unique` for dense integer matrices with a single-pass boolean tracking array bounded by `extrema()`. This completely eliminates allocations from hashing and creates an O(1) direct mapping mechanism.
