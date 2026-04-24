@@ -44,20 +44,33 @@ end
 function compute_average_markings(vertices::Matrix{Int}, steady_state_probs::Vector{Float64})
     num_states, num_places = size(vertices)
 
-    unique_token_values = sort(unique(vertices))
-    num_unique = length(unique_token_values)
-
-    # Optimization: Use an O(1) array-based lookup instead of a dictionary to eliminate
-    # hashing overhead inside the hot loop. Token values are integer-based and usually dense.
-    min_val = isempty(unique_token_values) ? 0 : unique_token_values[1]
-    max_val = isempty(unique_token_values) ? 0 : unique_token_values[end]
+    # Optimization: Replaced dynamically allocating `sort(unique(vertices))` with
+    # a single pass token tracking array, eliminating intermediate array allocations
+    # and avoiding expensive `unique` checks.
+    if isempty(vertices)
+        min_val, max_val = 0, 0
+    else
+        min_val, max_val = extrema(vertices)
+    end
 
     val_range = max_val - min_val + 1
-    token_to_idx = zeros(Int, val_range)
-    offset = 1 - min_val
-    for (idx, val) in enumerate(unique_token_values)
-        token_to_idx[val + offset] = idx
+    present = falses(val_range)
+    @inbounds for x in vertices
+        present[x - min_val + 1] = true
     end
+
+    num_unique = sum(present)
+
+    token_to_idx = zeros(Int, val_range)
+    idx = 1
+    for i in 1:val_range
+        if present[i]
+            token_to_idx[i] = idx
+            idx += 1
+        end
+    end
+
+    offset = 1 - min_val
 
     marking_density_matrix = zeros(Float64, num_places, num_unique)
     avg_tokens_per_place = zeros(Float64, num_places)
