@@ -116,7 +116,7 @@ function _vertices_to_matrix(vertices::AbstractVector{<:AbstractVector{Int}})
     return mat
 end
 
-function _edges_to_matrix(edges::AbstractVector{<:AbstractVector{Int}})
+function _edges_to_matrix(edges::Union{AbstractVector{<:AbstractVector{Int}}, AbstractVector{<:Tuple{Int, Int}}})
     if isempty(edges)
         return Matrix{Int}(undef, 0, 2)
     end

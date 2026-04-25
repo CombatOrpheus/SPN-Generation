@@ -38,3 +38,11 @@
 ## 2024-04-24 - [Avoid `sort(unique())` allocations for dense token values]
 **Learning:** Using `sort(unique(vertices))` inside hot loops (e.g. state space evaluation) allocates intermediate dictionaries/sets and arrays for hashing and sorting, significantly degrading performance.
 **Action:** Replace `unique` for dense integer matrices with a single-pass boolean tracking array bounded by `extrema()`. This completely eliminates allocations from hashing and creates an O(1) direct mapping mechanism.
+
+## 2025-04-25 - Avoid eagerly allocating state arrays when checking BFS dictionaries
+**Learning:** In Julia, `Dict{Vector{Int}, Int}` can correctly index and check keys using an `AbstractVector` view like `view(Matrix, i, :)`. Previously, checking if a state has been explored in `_update_graph!` eagerness allocated a full `Vector{Int}` for every potential state transition, even if the state was already visited.
+**Action:** Always wrap the potential next state from a pre-allocated matrix as a `view` (`new_marking_view = view(enabled_next_markings, i, :)`), pass the view to `haskey(explored_markings_dict, new_marking_view)`, and ONLY convert it to a dense array (`Vector{Int}(new_marking_view)`) if the state is truly new and must be added to the queue/visited list. This saves `O(transitions * max_explored)` array allocations and significantly reduces garbage collection pressure.
+
+## 2025-04-25 - Prevent dynamic array resizing in graph algorithms with `sizehint!`
+**Learning:** During BFS traversals or graph building, dynamically pushing elements into `Vector` or `Dict` collections repeatedly allocates and copies memory under the hood as the capacity grows.
+**Action:** When a known maximum limit exists (e.g., `max_markings_to_explore` in graph reachability), call `sizehint!(collection, limit)` immediately after initialization to allocate the needed memory capacity upfront and prevent array resizing.
