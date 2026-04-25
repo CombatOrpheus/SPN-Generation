@@ -89,7 +89,7 @@ function _process_marking(
 end
 
 function _update_graph!(
-    new_marking,
+    new_marking_view,
     enabled_transition_index,
     current_marking_index,
     marking_index_counter,
@@ -100,21 +100,22 @@ function _update_graph!(
     edge_transition_indices,
     max_markings_to_explore,
 )
-    if !haskey(explored_markings_dict, new_marking)
+    if !haskey(explored_markings_dict, new_marking_view)
         marking_index_counter += 1
         if marking_index_counter >= max_markings_to_explore
-            push!(reachability_edges, [current_marking_index, marking_index_counter])
+            push!(reachability_edges, (current_marking_index, marking_index_counter))
             push!(edge_transition_indices, enabled_transition_index)
             return marking_index_counter, true
         end
 
-        push!(visited_markings_list, new_marking)
-        explored_markings_dict[new_marking] = marking_index_counter
+        new_marking_vector = Vector{Int}(new_marking_view)
+        push!(visited_markings_list, new_marking_vector)
+        explored_markings_dict[new_marking_vector] = marking_index_counter
         push!(processing_queue, marking_index_counter)
-        push!(reachability_edges, [current_marking_index, marking_index_counter])
+        push!(reachability_edges, (current_marking_index, marking_index_counter))
     else
-        existing_index = explored_markings_dict[new_marking]
-        push!(reachability_edges, [current_marking_index, existing_index])
+        existing_index = explored_markings_dict[new_marking_view]
+        push!(reachability_edges, (current_marking_index, existing_index))
     end
 
     push!(edge_transition_indices, enabled_transition_index)
@@ -136,8 +137,16 @@ function generate_reachability_graph(incidence_matrix_with_initial; place_upper_
         processing_queue,
     ) = _initialize_bfs(initial_marking)
 
-    reachability_edges = Vector{Vector{Int}}()
+    sizehint!(visited_markings_list, max_markings_to_explore)
+    sizehint!(explored_markings_dict, max_markings_to_explore)
+
+    reachability_edges = Vector{Tuple{Int, Int}}()
     edge_transition_indices = Vector{Int}()
+
+    # We estimate edges to be about 2-3x the number of vertices for sparse graphs
+    sizehint!(reachability_edges, max_markings_to_explore * 2)
+    sizehint!(edge_transition_indices, max_markings_to_explore * 2)
+
     is_bounded = true
 
     num_places = size(incidence_matrix, 1)
@@ -168,11 +177,11 @@ function generate_reachability_graph(incidence_matrix_with_initial; place_upper_
         end
 
         for i in 1:size(enabled_next_markings, 1)
-            new_marking = enabled_next_markings[i, :]
+            new_marking_view = view(enabled_next_markings, i, :)
             enabled_transition_index = enabled_transition_indices[i]
 
             marking_index_counter, stop = _update_graph!(
-                new_marking,
+                new_marking_view,
                 enabled_transition_index,
                 current_marking_index,
                 marking_index_counter,
