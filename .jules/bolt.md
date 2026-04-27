@@ -46,3 +46,7 @@
 ## 2025-04-25 - Prevent dynamic array resizing in graph algorithms with `sizehint!`
 **Learning:** During BFS traversals or graph building, dynamically pushing elements into `Vector` or `Dict` collections repeatedly allocates and copies memory under the hood as the capacity grows.
 **Action:** When a known maximum limit exists (e.g., `max_markings_to_explore` in graph reachability), call `sizehint!(collection, limit)` immediately after initialization to allocate the needed memory capacity upfront and prevent array resizing.
+
+## 2024-04-26 - [Replace undefined sample with zero-allocation partial Fisher-Yates shuffle]
+**Learning:** Using `sample(array, n, replace=false)` without importing `StatsBase` causes an `UndefVarError`. Even if imported, it allocates a completely new array to store the sampled items.
+**Action:** Replace `sample` with an in-place partial Fisher-Yates shuffle and a `resize!` (or `view`). This eliminates memory allocations entirely for these operations and fixes the missing import bug, yielding a measurable performance boost and lowering garbage collection pressure.
