@@ -92,10 +92,21 @@ function solve_for_steady_state(state_matrix, target_vector)
     try
         probs, history = lsmr(state_matrix, target_vector, atol=1e-6, btol=1e-6, conlim=1e7, maxiter=100 * size(state_matrix, 2), log=true)
         if history.isconverged
-            probs[probs .< 0] .= 0
-            prob_sum = sum(probs)
+            # ⚡ Bolt Optimization: Replace vectorized allocation with explicit loop
+            # Eliminates intermediate boolean array allocations and computes sum in one pass.
+            prob_sum = 0.0
+            @inbounds @simd for i in eachindex(probs)
+                p = max(0.0, probs[i])
+                probs[i] = p
+                prob_sum += p
+            end
             if prob_sum > 1e-9
-                return probs ./ prob_sum
+                # ⚡ Bolt Optimization: In-place normalization to avoid array allocation
+                inv_sum = 1.0 / prob_sum
+                @inbounds @simd for i in eachindex(probs)
+                    probs[i] *= inv_sum
+                end
+                return probs
             end
         end
     catch e
