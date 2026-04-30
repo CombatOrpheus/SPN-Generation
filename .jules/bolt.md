@@ -54,3 +54,7 @@
 ## 2024-04-28 - In-Place Array Clamping and Normalization
 **Learning:** In mathematical operations (like calculating probabilities), fully vectorized clamping (`probs[probs .< 0] .= 0`) and subsequent allocations (`probs ./ sum(probs)`) create intermediate boolean arrays and return new allocations, significantly slowing down performance on hot loops.
 **Action:** Replace these chained vectorized operations with fused, explicit `@simd` `@inbounds` loops. Clamp values (`max(0.0, val)`), accumulate the sum in a single pass, and perform in-place scalar multiplication (`probs[i] *= 1.0/sum`) to eliminate allocations and boost speed by ~4-5x.
+
+## 2024-05-18 - Replacing Queue with a pre-allocated Vector in BFS
+**Learning:** In Julia, dynamically allocating and tracking nodes in a BFS algorithm using `DataStructures.Queue` introduces measurable memory allocation overhead due to internal linked list updates (or deque block allocations).
+**Action:** Replace `DataStructures.Queue` with a simple pre-allocated `Vector{Int}` and a `queue_head` index counter. This drastically reduces allocations since we already know the maximum number of nodes we will explore (`max_markings_to_explore`).
