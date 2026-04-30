@@ -39,7 +39,9 @@ function _initialize_bfs(initial_marking)
     marking_index_counter = 1 # Julia is 1-indexed
     visited_markings_list = Vector{Vector{Int}}([initial_marking])
     explored_markings_dict = Dict{Vector{Int}, Int}(initial_marking => marking_index_counter)
-    processing_queue = Queue{Int}()
+    processing_queue = Int[]
+    # ⚡ Bolt Optimization: Replace DataStructures.Queue with a simple Vector
+    # to significantly reduce memory allocations and queue operations overhead in BFS.
     push!(processing_queue, marking_index_counter)
     return marking_index_counter, visited_markings_list, explored_markings_dict, processing_queue
 end
@@ -139,6 +141,7 @@ function generate_reachability_graph(incidence_matrix_with_initial; place_upper_
 
     sizehint!(visited_markings_list, max_markings_to_explore)
     sizehint!(explored_markings_dict, max_markings_to_explore)
+    sizehint!(processing_queue, max_markings_to_explore)
 
     reachability_edges = Vector{Tuple{Int, Int}}()
     edge_transition_indices = Vector{Int}()
@@ -153,8 +156,10 @@ function generate_reachability_graph(incidence_matrix_with_initial; place_upper_
     enabled_transitions_buffer = Vector{Int}(undef, num_transitions)
     new_markings_buffer = Matrix{Int}(undef, num_transitions, num_places)
 
-    while !isempty(processing_queue)
-        current_marking_index = popfirst!(processing_queue)
+    queue_head = 1
+    while queue_head <= length(processing_queue)
+        current_marking_index = processing_queue[queue_head]
+        queue_head += 1
 
         enabled_next_markings, enabled_transition_indices, stop_exploration = _process_marking(
             current_marking_index,
