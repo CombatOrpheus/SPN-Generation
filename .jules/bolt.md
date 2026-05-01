@@ -58,3 +58,6 @@
 ## 2024-05-18 - Replacing Queue with a pre-allocated Vector in BFS
 **Learning:** In Julia, dynamically allocating and tracking nodes in a BFS algorithm using `DataStructures.Queue` introduces measurable memory allocation overhead due to internal linked list updates (or deque block allocations).
 **Action:** Replace `DataStructures.Queue` with a simple pre-allocated `Vector{Int}` and a `queue_head` index counter. This drastically reduces allocations since we already know the maximum number of nodes we will explore (`max_markings_to_explore`).
+## 2024-05-19 - De-vectorize rand() assignments
+**Learning:** In Julia, vectorized array generation for random sampling combined with boolean array indexing (e.g. `petri_matrix[:, end] .+= (rand(0:9, num_places) .<= 2)`) heavily allocates intermediate temporary memory.
+**Action:** Replace probabilistic boolean vector generation with an explicit `@inbounds for` loop using scalar generation checks (e.g., `rand(0:9) <= 2`). This avoids multiple array allocations and speeds up evaluation.
