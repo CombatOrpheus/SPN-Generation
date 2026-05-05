@@ -25,10 +25,14 @@ function get_enabled_transitions!(pre_condition_matrix, change_matrix, current_m
         return view(new_markings_buffer, 1:0, 1:num_places), view(enabled_transitions_buffer, 1:0)
     end
 
-    @inbounds for j in 1:num_enabled
-        trans_idx = enabled_transitions_buffer[j]
-        for i in 1:num_places
-            new_markings_buffer[j, i] = current_marking_vector[i] + change_matrix[i, trans_idx]
+    # ⚡ Bolt Optimization: Swap loop order for column-major access.
+    # new_markings_buffer is Matrix{Int}(undef, num_transitions, num_places),
+    # so we iterate over the first index (j) in the inner loop for cache locality.
+    @inbounds for i in 1:num_places
+        curr_mark = current_marking_vector[i]
+        for j in 1:num_enabled
+            trans_idx = enabled_transitions_buffer[j]
+            new_markings_buffer[j, i] = curr_mark + change_matrix[i, trans_idx]
         end
     end
 
