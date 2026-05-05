@@ -61,3 +61,7 @@
 ## 2024-05-19 - De-vectorize rand() assignments
 **Learning:** In Julia, vectorized array generation for random sampling combined with boolean array indexing (e.g. `petri_matrix[:, end] .+= (rand(0:9, num_places) .<= 2)`) heavily allocates intermediate temporary memory.
 **Action:** Replace probabilistic boolean vector generation with an explicit `@inbounds for` loop using scalar generation checks (e.g., `rand(0:9) <= 2`). This avoids multiple array allocations and speeds up evaluation.
+
+## 2024-05-19 - Cache Locality in Matrix Assignment Loops
+**Learning:** When populating a pre-allocated `Matrix{T}(undef, num_transitions, num_places)` in Julia, it is treated as column-major. Iterating over the first index in the inner loop and the second index in the outer loop ensures contiguous memory access. Previously, a hot loop in `get_enabled_transitions!` iterated over the second index (places) in the inner loop, causing cache misses.
+**Action:** Always ensure that when populating or iterating over multidimensional arrays, the inner-most loop iterates over the first index (the row index) to maximize cache locality and performance.
