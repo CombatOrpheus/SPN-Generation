@@ -65,3 +65,7 @@
 ## 2024-05-19 - Cache Locality in Matrix Assignment Loops
 **Learning:** When populating a pre-allocated `Matrix{T}(undef, num_transitions, num_places)` in Julia, it is treated as column-major. Iterating over the first index in the inner loop and the second index in the outer loop ensures contiguous memory access. Previously, a hot loop in `get_enabled_transitions!` iterated over the second index (places) in the inner loop, causing cache misses.
 **Action:** Always ensure that when populating or iterating over multidimensional arrays, the inner-most loop iterates over the first index (the row index) to maximize cache locality and performance.
+
+## 2026-05-09 - Scalar Accumulation in Hot Loops Overrides Direct Array Modification
+**Learning:** In Julia hot loops, updating an array directly via its index (`array[j] += val`) incurs repeated array indexing and bounds-checking overhead, even with `@inbounds` (due to underlying pointer resolutions).
+**Action:** When accumulating a sum inside a nested loop, initialize a local scalar variable (e.g., `sum_tokens = 0.0`), accumulate the sum into this variable within the inner loop, and assign the scalar to the array index only once after the inner loop finishes.
