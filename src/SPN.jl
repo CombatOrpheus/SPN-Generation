@@ -76,13 +76,18 @@ function compute_average_markings(vertices::Matrix{Int}, steady_state_probs::Vec
     avg_tokens_per_place = zeros(Float64, num_places)
 
     @inbounds for j in 1:num_places
+        # ⚡ Bolt Optimization: Use a local scalar variable for inner loop accumulation
+        # instead of updating `avg_tokens_per_place[j]` directly. This eliminates redundant
+        # bounds checking and array indexing evaluations in the hot loop.
+        sum_tokens = 0.0
         for i in 1:num_states
             prob = steady_state_probs[i]
             val = vertices[i, j]
             idx = token_to_idx[val + offset]
             marking_density_matrix[j, idx] += prob
-            avg_tokens_per_place[j] += val * prob
+            sum_tokens += val * prob
         end
+        avg_tokens_per_place[j] = sum_tokens
     end
 
     return marking_density_matrix, avg_tokens_per_place
