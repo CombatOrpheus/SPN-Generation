@@ -69,3 +69,6 @@
 ## 2026-05-09 - Scalar Accumulation in Hot Loops Overrides Direct Array Modification
 **Learning:** In Julia hot loops, updating an array directly via its index (`array[j] += val`) incurs repeated array indexing and bounds-checking overhead, even with `@inbounds` (due to underlying pointer resolutions).
 **Action:** When accumulating a sum inside a nested loop, initialize a local scalar variable (e.g., `sum_tokens = 0.0`), accumulate the sum into this variable within the inner loop, and assign the scalar to the array index only once after the inner loop finishes.
+## 2024-05-20 - [Fused bounds checking in state generation]
+**Learning:** In algorithmic state generation (like BFS graph generation), extracting bounds checking into a secondary pass iterating over all generated states allocates extra execution time.
+**Action:** Fuse the bounds check directly into the inner state-generation loop (e.g., inside `get_enabled_transitions!`) to enable early termination. This avoids computing all valid markings first and running a secondary O(N*M) pass to check limits.

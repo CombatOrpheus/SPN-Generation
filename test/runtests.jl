@@ -46,7 +46,7 @@ using JSON3
         pn = SPNGenerator.generate_random_petri_net(5, 3)
         res, success = SPNGenerator.filter_spn(pn)
         if success
-            variations = SPNGenerator.generate_lambda_variations(res, 3)
+            variations = SPNGenerator.generate_lambda_variations(res, res["petri_net"]::AbstractMatrix{Int32}, 3)
             @test length(variations) <= 3
         end
     end
