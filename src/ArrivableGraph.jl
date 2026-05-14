@@ -2,7 +2,7 @@
 """
 Identifies enabled transitions and calculates the resulting markings.
 """
-function get_enabled_transitions!(pre_condition_matrix, change_matrix, current_marking_vector, enabled_transitions_buffer, new_markings_buffer)
+function get_enabled_transitions!(pre_condition_matrix, change_matrix, current_marking_vector, enabled_transitions_buffer, new_markings_buffer, place_upper_limit)
     # Optimize hot loop: use nested loops with early break instead of allocating vectorized operations
     num_places, num_transitions = size(pre_condition_matrix)
 
@@ -22,7 +22,7 @@ function get_enabled_transitions!(pre_condition_matrix, change_matrix, current_m
     end
 
     if num_enabled == 0
-        return view(new_markings_buffer, 1:0, 1:num_places), view(enabled_transitions_buffer, 1:0)
+        return view(new_markings_buffer, 1:0, 1:num_places), view(enabled_transitions_buffer, 1:0), false
     end
 
     # ⚡ Bolt Optimization: Swap loop order for column-major access.
@@ -32,11 +32,15 @@ function get_enabled_transitions!(pre_condition_matrix, change_matrix, current_m
         curr_mark = current_marking_vector[i]
         for j in 1:num_enabled
             trans_idx = enabled_transitions_buffer[j]
-            new_markings_buffer[j, i] = curr_mark + change_matrix[i, trans_idx]
+            new_val = curr_mark + change_matrix[i, trans_idx]
+            if new_val > place_upper_limit
+                return view(new_markings_buffer, 1:0, :), view(enabled_transitions_buffer, 1:0), true
+            end
+            new_markings_buffer[j, i] = new_val
         end
     end
 
-    return view(new_markings_buffer, 1:num_enabled, :), view(enabled_transitions_buffer, 1:num_enabled)
+    return view(new_markings_buffer, 1:num_enabled, :), view(enabled_transitions_buffer, 1:num_enabled), false
 end
 
 function _initialize_bfs(initial_marking)
@@ -66,26 +70,9 @@ function _process_marking(
         return nothing, nothing, true
     end
 
-    enabled_next_markings, enabled_transition_indices = get_enabled_transitions!(
-        pre_matrix, change_matrix, current_marking, enabled_transitions_buffer, new_markings_buffer
+    enabled_next_markings, enabled_transition_indices, exceeds_limit = get_enabled_transitions!(
+        pre_matrix, change_matrix, current_marking, enabled_transitions_buffer, new_markings_buffer, place_upper_limit
     )
-
-    exceeds_limit = false
-    if !isempty(enabled_next_markings)
-        num_enabled = size(enabled_next_markings, 1)
-        num_places = size(enabled_next_markings, 2)
-        @inbounds for j in 1:num_places
-            for i in 1:num_enabled
-                if enabled_next_markings[i, j] > place_upper_limit
-                    exceeds_limit = true
-                    break
-                end
-            end
-            if exceeds_limit
-                break
-            end
-        end
-    end
 
     if exceeds_limit
         return nothing, nothing, true
