@@ -205,9 +205,6 @@ Adds tokens to random places in the Petri net.
 function add_tokens_randomly(petri_matrix)
     num_places = size(petri_matrix, 1)
 
-    # ⚡ Bolt Optimization: Eliminated intermediate memory allocations
-    # when adding tokens by avoiding vectorized probabilistic checks (`rand(0:9, num_places) .<= 2`).
-    # Replaced with an explicit loop using scalar `rand()` to significantly reduce GC pressure.
     @inbounds for i in 1:num_places
         if rand(0:9) <= 2
             petri_matrix[i, end] += 1
