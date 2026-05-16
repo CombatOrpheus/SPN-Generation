@@ -22,25 +22,24 @@ function get_enabled_transitions!(pre_condition_matrix, change_matrix, current_m
     end
 
     if num_enabled == 0
-        return view(new_markings_buffer, 1:0, 1:num_places), view(enabled_transitions_buffer, 1:0), false
+        return view(new_markings_buffer, :, 1:0), view(enabled_transitions_buffer, 1:0), false
     end
 
-    # ⚡ Bolt Optimization: Swap loop order for column-major access.
-    # new_markings_buffer is Matrix{Int}(undef, num_transitions, num_places),
-    # so we iterate over the first index (j) in the inner loop for cache locality.
-    @inbounds for i in 1:num_places
-        curr_mark = current_marking_vector[i]
-        for j in 1:num_enabled
-            trans_idx = enabled_transitions_buffer[j]
-            new_val = curr_mark + change_matrix[i, trans_idx]
+    # ⚡ Bolt Optimization: new_markings_buffer is Matrix{Int}(undef, num_places, num_transitions).
+    # We iterate over `i` (places) in the inner loop to ensure completely contiguous memory access
+    # across change_matrix[i, trans_idx], current_marking_vector[i], and new_markings_buffer[i, j].
+    @inbounds for j in 1:num_enabled
+        trans_idx = enabled_transitions_buffer[j]
+        for i in 1:num_places
+            new_val = current_marking_vector[i] + change_matrix[i, trans_idx]
             if new_val > place_upper_limit
-                return view(new_markings_buffer, 1:0, :), view(enabled_transitions_buffer, 1:0), true
+                return view(new_markings_buffer, :, 1:0), view(enabled_transitions_buffer, 1:0), true
             end
-            new_markings_buffer[j, i] = new_val
+            new_markings_buffer[i, j] = new_val
         end
     end
 
-    return view(new_markings_buffer, 1:num_enabled, :), view(enabled_transitions_buffer, 1:num_enabled), false
+    return view(new_markings_buffer, :, 1:num_enabled), view(enabled_transitions_buffer, 1:num_enabled), false
 end
 
 function _initialize_bfs(initial_marking)
@@ -145,7 +144,7 @@ function generate_reachability_graph(incidence_matrix_with_initial; place_upper_
 
     num_places = size(incidence_matrix, 1)
     enabled_transitions_buffer = Vector{Int}(undef, num_transitions)
-    new_markings_buffer = Matrix{Int}(undef, num_transitions, num_places)
+    new_markings_buffer = Matrix{Int}(undef, num_places, num_transitions)
 
     queue_head = 1
     while queue_head <= length(processing_queue)
@@ -172,8 +171,8 @@ function generate_reachability_graph(incidence_matrix_with_initial; place_upper_
             continue
         end
 
-        for i in 1:size(enabled_next_markings, 1)
-            new_marking_view = view(enabled_next_markings, i, :)
+        for i in 1:size(enabled_next_markings, 2)
+            new_marking_view = view(enabled_next_markings, :, i)
             enabled_transition_index = enabled_transition_indices[i]
 
             marking_index_counter, stop = _update_graph!(
