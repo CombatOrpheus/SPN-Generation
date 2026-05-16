@@ -76,9 +76,6 @@ function compute_average_markings(vertices::Matrix{Int}, steady_state_probs::Vec
     avg_tokens_per_place = zeros(Float64, num_places)
 
     @inbounds for j in 1:num_places
-        # ⚡ Bolt Optimization: Use a local scalar variable for inner loop accumulation
-        # instead of updating `avg_tokens_per_place[j]` directly. This eliminates redundant
-        # bounds checking and array indexing evaluations in the hot loop.
         sum_tokens = 0.0
         for i in 1:num_states
             prob = steady_state_probs[i]
@@ -97,8 +94,6 @@ function solve_for_steady_state(state_matrix, target_vector)
     try
         probs, history = lsmr(state_matrix, target_vector, atol=1e-6, btol=1e-6, conlim=1e7, maxiter=100 * size(state_matrix, 2), log=true)
         if history.isconverged
-            # ⚡ Bolt Optimization: Replace vectorized allocation with explicit loop
-            # Eliminates intermediate boolean array allocations and computes sum in one pass.
             prob_sum = 0.0
             @inbounds @simd for i in eachindex(probs)
                 p = max(0.0, probs[i])
@@ -106,7 +101,6 @@ function solve_for_steady_state(state_matrix, target_vector)
                 prob_sum += p
             end
             if prob_sum > 1e-9
-                # ⚡ Bolt Optimization: In-place normalization to avoid array allocation
                 inv_sum = 1.0 / prob_sum
                 @inbounds @simd for i in eachindex(probs)
                     probs[i] *= inv_sum

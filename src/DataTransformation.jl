@@ -176,9 +176,6 @@ function generate_petri_net_variations(petri_matrix, config)
 
     max_candidates = convert(Int, get(config, "max_candidates_per_structure", 50))
     if length(candidate_matrices) > max_candidates
-        # ⚡ Bolt Optimization: Replace undefined `sample` with an in-place partial Fisher-Yates
-        # shuffle. This avoids allocating a completely new array (as `shuffle(array)[1:N]` would)
-        # and directly modifies the array in place to save memory allocations.
         len = length(candidate_matrices)
         @inbounds for i in 1:max_candidates
             j = rand(i:len)

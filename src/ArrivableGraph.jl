@@ -25,9 +25,6 @@ function get_enabled_transitions!(pre_condition_matrix, change_matrix, current_m
         return view(new_markings_buffer, :, 1:0), view(enabled_transitions_buffer, 1:0), false
     end
 
-    # ⚡ Bolt Optimization: new_markings_buffer is Matrix{Int}(undef, num_places, num_transitions).
-    # We iterate over `i` (places) in the inner loop to ensure completely contiguous memory access
-    # across change_matrix[i, trans_idx], current_marking_vector[i], and new_markings_buffer[i, j].
     @inbounds for j in 1:num_enabled
         trans_idx = enabled_transitions_buffer[j]
         for i in 1:num_places
@@ -47,8 +44,6 @@ function _initialize_bfs(initial_marking)
     visited_markings_list = Vector{Vector{Int}}([initial_marking])
     explored_markings_dict = Dict{Vector{Int}, Int}(initial_marking => marking_index_counter)
     processing_queue = Int[]
-    # ⚡ Bolt Optimization: Replace DataStructures.Queue with a simple Vector
-    # to significantly reduce memory allocations and queue operations overhead in BFS.
     push!(processing_queue, marking_index_counter)
     return marking_index_counter, visited_markings_list, explored_markings_dict, processing_queue
 end

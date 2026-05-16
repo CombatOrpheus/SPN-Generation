@@ -72,9 +72,6 @@ function _augment_single_spn_impl(sample, petri_net::AbstractMatrix{Int32}, conf
 
     max_transforms = convert(Int, get(config, "maximum_transformations_per_sample", length(augmented_data)))
     if length(augmented_data) > max_transforms
-        # ⚡ Bolt Optimization: Replace undefined `sample` with an in-place partial Fisher-Yates
-        # shuffle. This avoids allocating a completely new array (as `shuffle(array)[1:N]` would)
-        # and directly resizes the array in place, avoiding memory allocations and resolving the undefined variable error.
         len = length(augmented_data)
         n = convert(Int, max_transforms)
         @inbounds for i in 1:n

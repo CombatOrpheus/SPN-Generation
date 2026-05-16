@@ -57,9 +57,6 @@ function sample_json_files_from_directory(num_samples::Int, directory_path::Stri
 
     num_to_sample = min(num_samples, length(json_files))
 
-    # ⚡ Bolt Optimization: Replace undefined `sample` with an in-place partial Fisher-Yates
-    # shuffle. This avoids allocating a completely new array (as `shuffle(array)[1:N]` would)
-    # while correctly picking random elements.
     len = length(json_files)
     @inbounds for i in 1:num_to_sample
         j = rand(i:len)
