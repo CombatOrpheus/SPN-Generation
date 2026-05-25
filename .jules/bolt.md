@@ -25,3 +25,7 @@
 ## 2024-05-23 - Contiguous Matrix Updates Avoid Cache Misses in BFS Loops
 **Learning:** In hot loops where matrices are repeatedly updated (like in `get_enabled_transitions!`), writing to a matrix with standard column-major inner loop iteration over columns is cache aligned for the write, but reading an input matrix via the varying column index forces non-contiguous reads, causing many cache misses. Furthermore, hashing a sliced row view later is slightly slower than hashing a sliced column view.
 **Action:** Transpose or reshape the buffer matrix (e.g. from `num_transitions x num_places` to `num_places x num_transitions`). Loop with the row index on the inside to make ALL matrix accesses completely contiguous across both read (`change_matrix`) and write (`new_markings_buffer`) arrays. Slicing column views for downstream hashing is also faster.
+
+## 2024-04-24 - [Massive memory overhead from ConvergenceHistory in IterativeSolvers.jl]
+**Learning:** In Julia's `IterativeSolvers.jl`, calling `lsmr` (or similar solvers) with `log=true` forces the internal allocation of a `ConvergenceHistory` object that tracks residuals up to `maxiter`. For large matrices where `maxiter` is set high (e.g., $100 \times N$), this causes a massive memory allocation on every call (e.g., ~1.3MB overhead per solve), severely degrading GC performance.
+**Action:** When using `IterativeSolvers.jl` in hot paths, set `log=false` to skip the history allocation and manually compute a residual norm (e.g., `norm(A * x - b) < tol`) after the solve if a convergence check is required.

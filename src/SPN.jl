@@ -1,4 +1,6 @@
 # Contents of SPN submodule
+using LinearAlgebra
+
 function _compute_state_equation_core(num_vertices, edges, arc_transitions, lambda_values)
     num_edges = length(edges)
     I = Vector{Int}(undef, 2 * num_edges + num_vertices)
@@ -92,8 +94,11 @@ end
 
 function solve_for_steady_state(state_matrix, target_vector)
     try
-        probs, history = lsmr(state_matrix, target_vector, atol=1e-6, btol=1e-6, conlim=1e7, maxiter=100 * size(state_matrix, 2), log=true)
-        if history.isconverged
+        # Optimization: Disabled log=true in lsmr to prevent preallocation of a massive
+        # ConvergenceHistory object bounded by maxiter. This significantly reduces
+        # memory allocations and improves performance for steady-state solving.
+        probs = lsmr(state_matrix, target_vector, atol=1e-6, btol=1e-6, conlim=1e7, maxiter=100 * size(state_matrix, 2), log=false)
+        if norm(state_matrix * probs - target_vector) < 1e-5
             prob_sum = 0.0
             @inbounds @simd for i in eachindex(probs)
                 p = max(0.0, probs[i])
