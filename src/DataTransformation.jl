@@ -144,16 +144,22 @@ function _generate_rate_variations_impl(base_variation, p_net::AbstractMatrix{In
 end
 
 function _generate_petri_net_variations_impl(candidate_matrices, place_bound, marks_lower, marks_upper, config)
-    results = [
-        filter_spn(
+    # Optimization: Replaced list comprehensions with an explicit loop and pre-allocated
+    # vector to eliminate intermediate array and Tuple allocations during filtering.
+    structural_variations = Vector{Dict{String, Any}}()
+    sizehint!(structural_variations, length(candidate_matrices))
+
+    for matrix in candidate_matrices
+        res, success = filter_spn(
             matrix,
             place_upper_bound=place_bound,
             marks_lower_limit=marks_lower,
             marks_upper_limit=marks_upper
-        ) for matrix in candidate_matrices
-    ]
-
-    structural_variations = [res for (res, success) in results if success]
+        )
+        if success
+            push!(structural_variations, res)
+        end
+    end
 
     all_augmented_data = Vector{Dict{String, Any}}()
     append!(all_augmented_data, structural_variations)
