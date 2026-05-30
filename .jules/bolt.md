@@ -29,3 +29,7 @@
 ## 2024-04-24 - [Massive memory overhead from ConvergenceHistory in IterativeSolvers.jl]
 **Learning:** In Julia's `IterativeSolvers.jl`, calling `lsmr` (or similar solvers) with `log=true` forces the internal allocation of a `ConvergenceHistory` object that tracks residuals up to `maxiter`. For large matrices where `maxiter` is set high (e.g., $100 \times N$), this causes a massive memory allocation on every call (e.g., ~1.3MB overhead per solve), severely degrading GC performance.
 **Action:** When using `IterativeSolvers.jl` in hot paths, set `log=false` to skip the history allocation and manually compute a residual norm (e.g., `norm(A * x - b) < tol`) after the solve if a convergence check is required.
+
+## 2026-05-29 - [Hoist Allocation of Tuples out of Hot Loops]
+**Learning:** In Julia, creating collections of row views or vectors using `[e for e in eachrow(matrix)]` allocates heavily (heap allocations of SubArrays or Vectors) and degrades performance inside hot loops. Converting the matrix to an array of lightweight stack-allocated Tuples (`[(mat[i,1], mat[i,2]) for i in ...]`) reduces GC pressure drastically.
+**Action:** When repeatedly passing matrix data to inner processing functions in a hot loop, hoist the invariant conversion of matrix rows to tuple arrays outside the loop, rather than allocating views or vectors repeatedly.

@@ -8,7 +8,7 @@ function _compute_state_equation_core(num_vertices, edges, arc_transitions, lamb
     V = Vector{Float64}(undef, 2 * num_edges + num_vertices)
 
     idx = 1
-    for i in 1:num_edges
+    @inbounds for i in 1:num_edges
         edge = edges[i]
         trans_idx = arc_transitions[i]
         src_idx, dest_idx = edge[1], edge[2]
@@ -25,7 +25,7 @@ function _compute_state_equation_core(num_vertices, edges, arc_transitions, lamb
         idx += 1
     end
 
-    for j in 1:num_vertices
+    @inbounds for j in 1:num_vertices
         I[idx] = num_vertices + 1
         J[idx] = j
         V[idx] = 1.0
