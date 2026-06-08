@@ -113,16 +113,12 @@ function _generate_rate_variations_impl(base_variation, p_net::AbstractMatrix{In
         return Dict{String, Any}[]
     end
 
-    vlist_as_vecs = [v for v in eachrow(base_variation["arr_vlist"]::AbstractMatrix{Int})]
-    edges_mat = base_variation["arr_edge"]::AbstractMatrix{Int}
-    edges_as_tups = [(edges_mat[i, 1], edges_mat[i, 2]) for i in 1:size(edges_mat, 1)]
-
     rate_variations = Vector{Dict{String, Any}}()
     for _ in 1:num_variations
         new_rates = rand(1:10, num_trans)
         s_probs, m_dens, avg_marks, success = generate_stochastic_net_task_with_rates(
-            vlist_as_vecs,
-            edges_as_tups,
+            base_variation["arr_vlist"]::AbstractMatrix{Int},
+            base_variation["arr_edge"]::AbstractMatrix{Int},
             base_variation["arr_tranidx"]::Vector{Int},
             new_rates,
         )
@@ -203,16 +199,13 @@ end
 
 function _generate_lambda_variations_impl(petri_dict, petri_net::AbstractMatrix{Int32}, vlist::AbstractMatrix{Int}, edge_list::AbstractMatrix{Int}, tranidx::Vector{Int}, num_lambda_variations)
     num_transitions = (size(petri_net, 2) - 1) ÷ 2
-    vlist_as_vecs = [v for v in eachrow(vlist)]
-    edge_as_tups = [(edge_list[i, 1], edge_list[i, 2]) for i in 1:size(edge_list, 1)]
-
     lambda_variations = Vector{Dict{String, Any}}()
     for _ in 1:num_lambda_variations
         lambda_values = rand(1:10, num_transitions)
         results_dict, success = get_spn_info(
             petri_net,
-            vlist_as_vecs,
-            edge_as_tups,
+            vlist,
+            edge_list,
             tranidx,
             lambda_values,
         )

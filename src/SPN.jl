@@ -1,17 +1,17 @@
 # Contents of SPN submodule
 using LinearAlgebra
 
-function _compute_state_equation_core(num_vertices, edges, arc_transitions, lambda_values)
-    num_edges = length(edges)
+function _compute_state_equation_core(num_vertices, edges::AbstractMatrix, arc_transitions, lambda_values)
+    num_edges = size(edges, 1)
     I = Vector{Int}(undef, 2 * num_edges + num_vertices)
     J = Vector{Int}(undef, 2 * num_edges + num_vertices)
     V = Vector{Float64}(undef, 2 * num_edges + num_vertices)
 
     idx = 1
     @inbounds for i in 1:num_edges
-        edge = edges[i]
         trans_idx = arc_transitions[i]
-        src_idx, dest_idx = edge[1], edge[2]
+        src_idx = edges[i, 1]
+        dest_idx = edges[i, 2]
         rate = lambda_values[trans_idx]
 
         I[idx] = src_idx
@@ -35,7 +35,49 @@ function _compute_state_equation_core(num_vertices, edges, arc_transitions, lamb
     return sparse(I, J, V, num_vertices + 1, num_vertices)
 end
 
-function compute_state_equation(vertices, edges, arc_transitions, lambda_values)
+function _compute_state_equation_core(num_vertices, edges::AbstractVector, arc_transitions, lambda_values)
+    num_edges = length(edges)
+    I = Vector{Int}(undef, 2 * num_edges + num_vertices)
+    J = Vector{Int}(undef, 2 * num_edges + num_vertices)
+    V = Vector{Float64}(undef, 2 * num_edges + num_vertices)
+
+    idx = 1
+    @inbounds for i in 1:num_edges
+        trans_idx = arc_transitions[i]
+        src_idx = edges[i][1]
+        dest_idx = edges[i][2]
+        rate = lambda_values[trans_idx]
+
+        I[idx] = src_idx
+        J[idx] = src_idx
+        V[idx] = -rate
+        idx += 1
+
+        I[idx] = dest_idx
+        J[idx] = src_idx
+        V[idx] = rate
+        idx += 1
+    end
+
+    @inbounds for j in 1:num_vertices
+        I[idx] = num_vertices + 1
+        J[idx] = j
+        V[idx] = 1.0
+        idx += 1
+    end
+
+    return sparse(I, J, V, num_vertices + 1, num_vertices)
+end
+
+function compute_state_equation(vertices::AbstractMatrix, edges, arc_transitions, lambda_values)
+    num_vertices = size(vertices, 1)
+    state_matrix = _compute_state_equation_core(num_vertices, edges, arc_transitions, lambda_values)
+    target_vector = zeros(Float64, num_vertices + 1)
+    target_vector[end] = 1.0
+    return state_matrix, target_vector
+end
+
+function compute_state_equation(vertices::AbstractVector, edges, arc_transitions, lambda_values)
     num_vertices = length(vertices)
     state_matrix = _compute_state_equation_core(num_vertices, edges, arc_transitions, lambda_values)
     target_vector = zeros(Float64, num_vertices + 1)
@@ -144,12 +186,18 @@ function _edges_to_matrix(edges::Union{AbstractVector{<:AbstractVector{Int}}, Ab
     return mat
 end
 
+_ensure_matrix_vertices(vertices::AbstractMatrix) = vertices
+_ensure_matrix_vertices(vertices::AbstractVector) = _vertices_to_matrix(vertices)
+
+_ensure_matrix_edges(edges::AbstractMatrix) = edges
+_ensure_matrix_edges(edges::AbstractVector) = _edges_to_matrix(edges)
+
 function _run_spn_task(vertices, edges, arc_transitions, transition_rates)
     if isempty(vertices)
         return nothing, nothing, nothing, false
     end
 
-    vertices_np = _vertices_to_matrix(vertices)
+    vertices_np = _ensure_matrix_vertices(vertices)
     state_matrix, target_vector = compute_state_equation(vertices, edges, arc_transitions, transition_rates)
     steady_state_probs = solve_for_steady_state(state_matrix, target_vector)
 
@@ -219,8 +267,8 @@ end
 function _create_spn_result_dict(petri_net_matrix, vertices, edges, arc_transitions, firing_rates, steady_state_probs, marking_densities, average_markings)
     return Dict{String, Any}(
         "petri_net" => petri_net_matrix,
-        "arr_vlist" => _vertices_to_matrix(vertices),
-        "arr_edge" => _edges_to_matrix(edges),
+        "arr_vlist" => _ensure_matrix_vertices(vertices),
+        "arr_edge" => _ensure_matrix_edges(edges),
         "arr_tranidx" => isempty(arc_transitions) ? Vector{Int}() : arc_transitions,
         "spn_labda" => firing_rates,
         "spn_steadypro" => steady_state_probs,
