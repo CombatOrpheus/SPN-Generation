@@ -36,3 +36,4 @@
 ## 2026-06-07 - Prevent Matrix-to-Vector Conversions
 **Learning:** Converting 2D dense `AbstractMatrix` types into arrays of vectors or tuples before passing them across functions causes unnecessary memory allocation overhead and degrades cache locality in Julia.
 **Action:** Adapt internal functions (such as compute_state_equation loops) to natively handle `AbstractMatrix` types using `size(matrix, 1)` and 2D indexing (`matrix[i, 1]`) instead of breaking them into smaller structures first.
+To optimize tight loops and eliminate multiple dispatch validation checks in inner algorithms, validate inputs and perform type conversions (e.g., dynamically sized Arrays to AbstractMatrix) strictly at the API entry boundaries. Refactor inner helper functions to explicitly accept only the narrowed types (e.g., `AbstractMatrix`), which prevents dynamic allocation and speeds up runtime execution.
