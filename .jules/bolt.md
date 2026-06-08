@@ -33,3 +33,6 @@
 ## 2026-05-29 - [Hoist Allocation of Tuples out of Hot Loops]
 **Learning:** In Julia, creating collections of row views or vectors using `[e for e in eachrow(matrix)]` allocates heavily (heap allocations of SubArrays or Vectors) and degrades performance inside hot loops. Converting the matrix to an array of lightweight stack-allocated Tuples (`[(mat[i,1], mat[i,2]) for i in ...]`) reduces GC pressure drastically.
 **Action:** When repeatedly passing matrix data to inner processing functions in a hot loop, hoist the invariant conversion of matrix rows to tuple arrays outside the loop, rather than allocating views or vectors repeatedly.
+## 2026-06-07 - Prevent Matrix-to-Vector Conversions
+**Learning:** Converting 2D dense `AbstractMatrix` types into arrays of vectors or tuples before passing them across functions causes unnecessary memory allocation overhead and degrades cache locality in Julia.
+**Action:** Adapt internal functions (such as compute_state_equation loops) to natively handle `AbstractMatrix` types using `size(matrix, 1)` and 2D indexing (`matrix[i, 1]`) instead of breaking them into smaller structures first.
