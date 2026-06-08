@@ -35,50 +35,8 @@ function _compute_state_equation_core(num_vertices, edges::AbstractMatrix, arc_t
     return sparse(I, J, V, num_vertices + 1, num_vertices)
 end
 
-function _compute_state_equation_core(num_vertices, edges::AbstractVector, arc_transitions, lambda_values)
-    num_edges = length(edges)
-    I = Vector{Int}(undef, 2 * num_edges + num_vertices)
-    J = Vector{Int}(undef, 2 * num_edges + num_vertices)
-    V = Vector{Float64}(undef, 2 * num_edges + num_vertices)
-
-    idx = 1
-    @inbounds for i in 1:num_edges
-        trans_idx = arc_transitions[i]
-        src_idx = edges[i][1]
-        dest_idx = edges[i][2]
-        rate = lambda_values[trans_idx]
-
-        I[idx] = src_idx
-        J[idx] = src_idx
-        V[idx] = -rate
-        idx += 1
-
-        I[idx] = dest_idx
-        J[idx] = src_idx
-        V[idx] = rate
-        idx += 1
-    end
-
-    @inbounds for j in 1:num_vertices
-        I[idx] = num_vertices + 1
-        J[idx] = j
-        V[idx] = 1.0
-        idx += 1
-    end
-
-    return sparse(I, J, V, num_vertices + 1, num_vertices)
-end
-
-function compute_state_equation(vertices::AbstractMatrix, edges, arc_transitions, lambda_values)
+function compute_state_equation(vertices::AbstractMatrix, edges::AbstractMatrix, arc_transitions, lambda_values)
     num_vertices = size(vertices, 1)
-    state_matrix = _compute_state_equation_core(num_vertices, edges, arc_transitions, lambda_values)
-    target_vector = zeros(Float64, num_vertices + 1)
-    target_vector[end] = 1.0
-    return state_matrix, target_vector
-end
-
-function compute_state_equation(vertices::AbstractVector, edges, arc_transitions, lambda_values)
-    num_vertices = length(vertices)
     state_matrix = _compute_state_equation_core(num_vertices, edges, arc_transitions, lambda_values)
     target_vector = zeros(Float64, num_vertices + 1)
     target_vector[end] = 1.0
@@ -192,12 +150,7 @@ _ensure_matrix_vertices(vertices::AbstractVector) = _vertices_to_matrix(vertices
 _ensure_matrix_edges(edges::AbstractMatrix) = edges
 _ensure_matrix_edges(edges::AbstractVector) = _edges_to_matrix(edges)
 
-function _run_spn_task(vertices, edges, arc_transitions, transition_rates)
-    if isempty(vertices)
-        return nothing, nothing, nothing, false
-    end
-
-    vertices_np = _ensure_matrix_vertices(vertices)
+function _run_spn_task(vertices::AbstractMatrix, edges::AbstractMatrix, arc_transitions, transition_rates)
     state_matrix, target_vector = compute_state_equation(vertices, edges, arc_transitions, transition_rates)
     steady_state_probs = solve_for_steady_state(state_matrix, target_vector)
 
@@ -205,17 +158,18 @@ function _run_spn_task(vertices, edges, arc_transitions, transition_rates)
         return nothing, nothing, nothing, false
     end
 
-    marking_density, avg_markings = compute_average_markings(vertices_np, steady_state_probs)
+    # Explicit cast to Matrix{Int} is safe as our dense conversion ensures it
+    marking_density, avg_markings = compute_average_markings(Matrix{Int}(vertices), steady_state_probs)
     return steady_state_probs, marking_density, avg_markings, true
 end
 
-function generate_stochastic_net_task(vertices, edges, arc_transitions, num_transitions)
+function generate_stochastic_net_task(vertices::AbstractMatrix, edges::AbstractMatrix, arc_transitions, num_transitions)
     transition_rates = rand(1:10, num_transitions)
     probs, density, markings, success = _run_spn_task(vertices, edges, arc_transitions, transition_rates)
     return probs, density, markings, transition_rates, success
 end
 
-function generate_stochastic_net_task_with_rates(vertices, edges, arc_transitions, transition_rates)
+function generate_stochastic_net_task_with_rates(vertices::AbstractMatrix, edges::AbstractMatrix, arc_transitions, transition_rates)
     return _run_spn_task(vertices, edges, arc_transitions, transition_rates)
 end
 
@@ -264,11 +218,11 @@ function is_connected(petri_net_matrix)
     return true
 end
 
-function _create_spn_result_dict(petri_net_matrix, vertices, edges, arc_transitions, firing_rates, steady_state_probs, marking_densities, average_markings)
+function _create_spn_result_dict(petri_net_matrix, vertices::AbstractMatrix, edges::AbstractMatrix, arc_transitions, firing_rates, steady_state_probs, marking_densities, average_markings)
     return Dict{String, Any}(
         "petri_net" => petri_net_matrix,
-        "arr_vlist" => _ensure_matrix_vertices(vertices),
-        "arr_edge" => _ensure_matrix_edges(edges),
+        "arr_vlist" => vertices,
+        "arr_edge" => edges,
         "arr_tranidx" => isempty(arc_transitions) ? Vector{Int}() : arc_transitions,
         "spn_labda" => firing_rates,
         "spn_steadypro" => steady_state_probs,
@@ -293,13 +247,16 @@ function filter_spn(petri_net_matrix; place_upper_bound=10, marks_lower_limit=4,
         return Dict{String, Any}(), false
     end
 
-    probs, density, markings, rates, success = generate_stochastic_net_task(vertices, edges, arc_transitions, num_transitions)
+    vertices_mat = _ensure_matrix_vertices(vertices)
+    edges_mat = _ensure_matrix_edges(edges)
+
+    probs, density, markings, rates, success = generate_stochastic_net_task(vertices_mat, edges_mat, arc_transitions, num_transitions)
 
     if !success || sum(markings) > 1000 || sum(markings) < -1000
         return Dict{String, Any}(), false
     end
 
-    return _create_spn_result_dict(petri_net_matrix, vertices, edges, arc_transitions, rates, probs, density, markings), true
+    return _create_spn_result_dict(petri_net_matrix, vertices_mat, edges_mat, arc_transitions, rates, probs, density, markings), true
 end
 
 function get_spn_info(petri_net_matrix, vertices, edges, arc_transitions, transition_rates)
@@ -307,11 +264,14 @@ function get_spn_info(petri_net_matrix, vertices, edges, arc_transitions, transi
         return Dict{String, Any}(), false
     end
 
-    probs, density, markings, success = generate_stochastic_net_task_with_rates(vertices, edges, arc_transitions, transition_rates)
+    vertices_mat = _ensure_matrix_vertices(vertices)
+    edges_mat = _ensure_matrix_edges(edges)
+
+    probs, density, markings, success = generate_stochastic_net_task_with_rates(vertices_mat, edges_mat, arc_transitions, transition_rates)
 
     if !success
         return Dict{String, Any}(), false
     end
 
-    return _create_spn_result_dict(petri_net_matrix, vertices, edges, arc_transitions, transition_rates, probs, density, markings), true
+    return _create_spn_result_dict(petri_net_matrix, vertices_mat, edges_mat, arc_transitions, transition_rates, probs, density, markings), true
 end
