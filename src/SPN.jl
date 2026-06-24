@@ -98,7 +98,10 @@ function solve_for_steady_state(state_matrix, target_vector)
         # ConvergenceHistory object bounded by maxiter. This significantly reduces
         # memory allocations and improves performance for steady-state solving.
         probs = lsmr(state_matrix, target_vector, atol=1e-6, btol=1e-6, conlim=1e7, maxiter=100 * size(state_matrix, 2), log=false)
-        if norm(state_matrix * probs - target_vector) < 1e-5
+        temp = similar(target_vector)
+        mul!(temp, state_matrix, probs)
+        temp .-= target_vector
+        if norm(temp) < 1e-5
             prob_sum = 0.0
             @inbounds @simd for i in eachindex(probs)
                 p = max(0.0, probs[i])

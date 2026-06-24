@@ -12,7 +12,7 @@ function _initialize_petri_net(num_places::Int, num_transitions::Int)
     filter!(x -> x != first_place, remaining_nodes)
     filter!(x -> x != first_transition, remaining_nodes)
 
-    if rand() <= 0.5
+    if rand(Bool)
         petri_matrix[first_place, first_transition - num_places] = 1
     else
         petri_matrix[first_place, first_transition - num_places + num_transitions] = 1
@@ -39,7 +39,7 @@ function _connect_remaining_nodes(petri_matrix, remaining_nodes, sub_places, sub
             (rand(sub_places), node)
         end
 
-        if rand() <= 0.5
+        if rand(Bool)
             petri_matrix[place, transition - num_places] = 1
         else
             petri_matrix[place, transition - num_places + num_transitions] = 1
@@ -206,7 +206,7 @@ function add_tokens_randomly(petri_matrix)
     num_places = size(petri_matrix, 1)
 
     @inbounds for i in 1:num_places
-        if rand(0:9) <= 2
+        if rand() <= 0.3
             petri_matrix[i, end] += 1
         end
     end
